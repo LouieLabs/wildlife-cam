@@ -1,0 +1,11 @@
+# Credentials / secrets — never commit
+secrets.h
+**/secrets.h
+# (the committed template secrets.example.h is intentionally NOT ignored)
+
+# Arduino build output
+build/
+*.bin
+*.elf
+*.hex
+*.map
