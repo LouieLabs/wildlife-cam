@@ -114,6 +114,7 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
   button:hover{transform:translateY(-2px);box-shadow:0 8px 20px rgba(102,126,234,0.4)}
   button.ghost{background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1)}
   button.ghost:hover{background:rgba(255,255,255,0.1)}
+  button.recording{background:linear-gradient(135deg,#ef4444,#b91c1c)}
   .presets{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:12px}
   .presets button{min-width:0;font-size:13px}
   .p-uw{background:linear-gradient(135deg,#2193b0,#6dd5ed)}
@@ -165,7 +166,7 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
     </div>
     <div class="card">
       <div class="stream-wrap" id="wrap">
-        <img id="stream" draggable="false">
+        <img id="stream" draggable="false" crossorigin="anonymous">
         <div class="stream-overlay"><div class="dot"></div>LIVE</div>
         <div class="zoom-badge" id="zbadge">1.0x</div>
       </div>
@@ -177,6 +178,7 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
       </div>
       <div class="actions">
         <button onclick="snap()">Snapshot</button>
+        <button onclick="toggleRecord()" id="recBtn">&#9679; Record</button>
         <button class="ghost" onclick="toggleStream()" id="streamBtn">Pause</button>
         <button class="ghost" onclick="resetZoom()">Reset Zoom</button>
         <button class="ghost" onclick="fullscreen()">Fullscreen</button>
@@ -595,6 +597,70 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
   }
   function fullscreen(){
     if(wrap.requestFullscreen)wrap.requestFullscreen();
+  }
+
+  // ============ RECORD (in-browser, overlay burned in -> .webm) ============
+  // Draws the live frame + a caption strip onto a hidden canvas every frame and
+  // records that canvas with MediaRecorder. Needs the stream marked crossorigin
+  // (the server already sends Access-Control-Allow-Origin), else the canvas is
+  // tainted and recording is blocked.
+  const recCanvas = document.createElement('canvas');
+  const recCtx = recCanvas.getContext('2d');
+  let recording = false, mediaRec = null, recChunks = [], recRAF = 0;
+
+  function recCaption(){
+    const g = id => document.getElementById(id).textContent;
+    return CAMERA_NAME+'   '+g('statDate')+' '+g('statTime')+'   '+g('statLoc')+'   '+g('statTemp');
+  }
+  function recDraw(){
+    if(!recording) return;
+    const w = stream.naturalWidth || 640, h = stream.naturalHeight || 480;
+    const strip = Math.max(24, Math.round(h*0.06));
+    if(recCanvas.width !== w || recCanvas.height !== h+strip){ recCanvas.width=w; recCanvas.height=h+strip; }
+    try { recCtx.drawImage(stream, 0, 0, w, h); } catch(e){}
+    recCtx.fillStyle='rgba(0,0,0,0.85)'; recCtx.fillRect(0,h,w,strip);
+    let fs=Math.max(10,Math.round(strip*0.5));
+    recCtx.fillStyle='#fff'; recCtx.textBaseline='middle';
+    recCtx.font=fs+'px -apple-system,Segoe UI,Roboto,sans-serif';
+    const cap=recCaption();
+    while(recCtx.measureText(cap).width>w-16 && fs>8){ fs--; recCtx.font=fs+'px -apple-system,Segoe UI,Roboto,sans-serif'; }
+    recCtx.fillText(cap, 10, h+strip/2);
+    recRAF=requestAnimationFrame(recDraw);
+  }
+  function toggleRecord(){
+    const btn=document.getElementById('recBtn');
+    if(!recording){
+      if(!streaming) toggleStream();                 // make sure the feed is live
+      recording=true; recDraw();
+      let mime='video/webm;codecs=vp9';
+      if(!MediaRecorder.isTypeSupported(mime)) mime='video/webm;codecs=vp8';
+      if(!MediaRecorder.isTypeSupported(mime)) mime='video/webm';
+      let cs;
+      try { cs=recCanvas.captureStream(12); }          // 12 fps
+      catch(e){ recording=false; status.textContent='Recording blocked (stream not allowed on canvas)'; return; }
+      recChunks=[];
+      try { mediaRec=new MediaRecorder(cs,{mimeType:mime}); }
+      catch(e){ recording=false; status.textContent='Recorder error: '+e.message; return; }
+      mediaRec.ondataavailable=e=>{ if(e.data&&e.data.size) recChunks.push(e.data); };
+      mediaRec.onstop=()=>{
+        if(!recChunks.length){ status.textContent='Recording failed (no data captured)'; return; }
+        const blob=new Blob(recChunks,{type:'video/webm'});
+        const url=URL.createObjectURL(blob);
+        const g=id=>document.getElementById(id).textContent;
+        const fn=CAMERA_NAME.replace(/\s+/g,'_')+'_'+g('statDate').replace(/-/g,'')+'_'+g('statTime').replace(/:/g,'')+'.webm';
+        const a=document.createElement('a'); a.href=url; a.download=fn; a.click();
+        setTimeout(()=>URL.revokeObjectURL(url),4000);
+        status.textContent='Recording saved: '+fn;
+      };
+      try { mediaRec.start(); }
+      catch(e){ recording=false; status.textContent='Could not start: '+e.message; return; }
+      btn.innerHTML='&#9632; Stop'; btn.classList.add('recording'); status.textContent='Recording…';
+    } else {
+      recording=false;
+      if(recRAF) cancelAnimationFrame(recRAF);
+      if(mediaRec && mediaRec.state!=='inactive') mediaRec.stop();
+      btn.innerHTML='&#9679; Record'; btn.classList.remove('recording');
+    }
   }
 
   // ============ ZOOM & PAN ============
