@@ -335,6 +335,9 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
   const zbadge = document.getElementById('zbadge');
   let streaming = true;
 
+  // ====== CHANGE YOUR CAMERA NAME HERE ======
+  const CAMERA_NAME = "Camera 1";
+
   // The MJPEG stream lives on its own server on port 81 (this page is on 80).
   const STREAM_URL = location.protocol + '//' + location.hostname + ':81/stream';
   stream.src = STREAM_URL;
@@ -471,7 +474,7 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
     ctx.fillStyle='rgba(0,0,0,0.85)';
     ctx.fillRect(0,img.height,cv.width,stripH);
 
-    const caption=ts.date+'  '+ts.time+'   |   '+loc+'   |   '+tF;
+    const caption=CAMERA_NAME+'   |   '+ts.date+'  '+ts.time+'   |   '+loc+'   |   '+tF;
     let fs=Math.round(stripH*0.5);
     ctx.fillStyle='#fff'; ctx.textBaseline='middle';
     ctx.font=fs+'px -apple-system,Segoe UI,Roboto,sans-serif';
@@ -484,9 +487,9 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
       let bytes=new Uint8Array(await b.arrayBuffer());
       try{
         bytes=addExif(bytes,{
-          make:'Wildlife Cam', model:'HT-HC33 ESP32-S3', software:'wildlife_cam.ino',
+          make:CAMERA_NAME, model:'HT-HC33 ESP32-S3', software:'wildlife_cam.ino',
           dt:ts.exifDt,
-          desc:'Wildlife Cam | '+loc+' | '+
+          desc:CAMERA_NAME+' | '+loc+' | '+
                (st.weather_ok?Math.round(st.weather_c)+'C/'+Math.round(st.weather_f)+'F':'temp n/a')+
                ' | '+gatherSettings(),
           lat:st.lat, lon:st.lon
