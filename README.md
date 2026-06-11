@@ -72,6 +72,32 @@ the metadata (bottom-left, white text + black outline) while encoding to H.264.
 
 ---
 
+## Animal detection (optional) — `detect.py`
+
+Runs a YOLO detector over a saved photo or recording, draws labeled **bounding
+boxes**, and logs detections to a CSV. Targets people, dogs, rats, and Santa
+Cruz Mountains wildlife.
+
+```bash
+pip install -r requirements.txt          # ultralytics + opencv
+python3 detect.py photo.jpg              # -> photo_detected.jpg + photo_detections.csv
+python3 detect.py clip.mp4 --conf 0.35   # works on videos too
+```
+
+**Model coverage (important):** the default model (`yolo11n.pt`, COCO) only
+knows ~80 everyday classes — from the target list it detects **person, dog,
+cat, bird, bear** reliably, but **not** deer, coyote, bobcat, mountain lion,
+raccoon, fox, skunk, or rat. For real wildlife species, pass a wildlife-trained
+model:
+
+```bash
+python3 detect.py photo.jpg --model path/to/wildlife.pt
+```
+
+The right tool for camera-trap wildlife is **MegaDetector** (detects animal /
+person / vehicle on essentially any species). No detector is 100% accurate —
+treat low-confidence boxes with suspicion.
+
 ## Files
 
 | Path | What |
@@ -80,6 +106,8 @@ the metadata (bottom-left, white text + black outline) while encoding to H.264.
 | `videowithinterfacesketch/secrets.h` | WiFi credentials (gitignored) |
 | `videowithinterfacesketch/secrets.example.h` | Credentials template |
 | `record.py` | Desktop recorder → MP4 with overlay |
+| `detect.py` | Animal/human detection + bounding boxes on photos/videos |
+| `requirements.txt` | Python deps for `detect.py` |
 
 ---
 

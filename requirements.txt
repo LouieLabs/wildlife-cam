@@ -1,0 +1,4 @@
+# Desktop tools (record.py needs only the standard library + ffmpeg on PATH).
+# detect.py needs these:
+ultralytics>=8.3.0
+opencv-python>=4.8.0
