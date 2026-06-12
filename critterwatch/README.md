@@ -93,7 +93,8 @@ Make a `Louie Labs` folder in Downloads with two subfolders:
 ~/Downloads/Louie Labs/
   Wildlife Camera Images/
   Wildlife Camera Videos/
-  Annotated/              (auto-created)
+  Annotated/              (auto-created: annotated media + detections.csv)
+  JSONs/                  (auto-created: per-file .json sidecars)
 ```
 
 Install the background agent (one time):
@@ -107,8 +108,8 @@ On any new download, the agent:
 
 1. moves **only** `wildcam_*` files from Downloads into **Wildlife Camera
    Images** (photos) or **Wildlife Camera Videos** (recordings), then
-2. annotates them, writing the result to **`Annotated/`** (annotated copy +
-   JSON sidecar + `detections.csv`).
+2. annotates them — the annotated copy + `detections.csv` go to **`Annotated/`**,
+   and the per-file `.json` sidecar goes to **`JSONs/`**.
 
 **Safety:** the router only ever touches files whose name starts with
 `wildcam_` — exactly what the camera interface produces. Every other file in

@@ -121,10 +121,14 @@ class Logger:
     CSV_HEADER = ["timestamp", "filename", "media_type", "label", "category",
                   "confidence", "on_target_list", "bbox_pixels", "bbox_normalized"]
 
-    def __init__(self, output_dir: Path) -> None:
+    def __init__(self, output_dir: Path, json_dir: Optional[Path] = None) -> None:
+        # output_dir: annotated media + detections.csv
+        # json_dir:   per-file .json sidecars (defaults to output_dir)
         self.output_dir = output_dir
+        self.json_dir = json_dir or output_dir
         self.csv_path = output_dir / "detections.csv"
         output_dir.mkdir(parents=True, exist_ok=True)
+        self.json_dir.mkdir(parents=True, exist_ok=True)
         if not self.csv_path.exists():
             with self.csv_path.open("w", newline="") as fh:
                 csv.writer(fh).writerow(self.CSV_HEADER)
@@ -150,7 +154,7 @@ class Logger:
         }
         if extra:
             data.update(extra)
-        sidecar = self.output_dir / (source.stem + ".json")
+        sidecar = self.json_dir / (source.stem + ".json")
         sidecar.write_text(json.dumps(data, indent=2))
         return sidecar
 

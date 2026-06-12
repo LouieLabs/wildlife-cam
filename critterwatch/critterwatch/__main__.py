@@ -27,6 +27,7 @@ DEFAULT_LOUIE_LABS = Path.home() / "Downloads" / "Louie Labs"
 IMAGES_SUBDIR = "Wildlife Camera Images"
 VIDEOS_SUBDIR = "Wildlife Camera Videos"
 ANNOTATED_SUBDIR = "Annotated"
+JSONS_SUBDIR = "JSONs"
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -90,12 +91,14 @@ def _run_ingest(args: argparse.Namespace, cfg: Config) -> int:
     images_dir = base / IMAGES_SUBDIR
     videos_dir = base / VIDEOS_SUBDIR
     annotated_dir = base / ANNOTATED_SUBDIR
+    json_dir = base / JSONS_SUBDIR
 
     print("[critterwatch] ingest (sandboxed to Louie Labs)")
     print(f"[critterwatch] route from: {downloads}  (wildcam_* only)")
     print(f"[critterwatch] images  in: {images_dir}")
     print(f"[critterwatch] videos  in: {videos_dir}")
     print(f"[critterwatch] annotated ->: {annotated_dir}")
+    print(f"[critterwatch] json      ->: {json_dir}")
 
     if not base.is_dir():
         print(f"[critterwatch] Louie Labs folder not found: {base}")
@@ -111,7 +114,7 @@ def _run_ingest(args: argparse.Namespace, cfg: Config) -> int:
 
     def factory(out_dir: Path):
         runner = EnsembleRunner(cfg)            # loads the model (only when there's work)
-        logger = Logger(out_dir)
+        logger = Logger(out_dir, json_dir=json_dir)   # sidecars go to the JSONs folder
         return lambda p: process_file(p, runner, cfg, out_dir, logger)
 
     try:
