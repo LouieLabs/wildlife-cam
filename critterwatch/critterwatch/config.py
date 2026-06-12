@@ -9,8 +9,8 @@ import yaml
 
 # Extensions we treat as images vs videos.
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".heic"}
-VIDEO_EXTENSIONS = {".mp4", ".mov"}
-DEFAULT_EXTENSIONS = [".jpg", ".jpeg", ".png", ".heic", ".mp4", ".mov"]
+VIDEO_EXTENSIONS = {".mp4", ".mov", ".webm"}
+DEFAULT_EXTENSIONS = [".jpg", ".jpeg", ".png", ".heic", ".mp4", ".mov", ".webm"]
 
 
 @dataclass

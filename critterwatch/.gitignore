@@ -4,8 +4,11 @@
 # runtime folders + generated config/logs
 input/
 output/
-config.yaml
+config*.yaml
 introspect_output.json
+
+# macOS junk
+.DS_Store
 
 # python
 __pycache__/
@@ -16,3 +19,7 @@ __pycache__/
 # downloaded model weights live in ~/.cache/kagglehub (not here), but just in case
 *.pt
 *.onnx
+
+# launchd agent logs
+agent.out.log
+agent.err.log

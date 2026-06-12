@@ -82,6 +82,39 @@ on first run.
 
 ---
 
+## Fully automatic mode (macOS) — recommended
+
+Hands-off, and strictly **sandboxed to one folder**. Make a `Louie Labs` folder
+in Downloads with two subfolders:
+
+```
+~/Downloads/Louie Labs/
+  Wildlife Camera Images/    <- drop snapshots here
+  Wildlife Camera Videos/    <- drop recordings here
+```
+
+Then install the background agent (one time):
+
+```bash
+./install_agent.sh      # start auto-annotation
+./uninstall_agent.sh    # stop it later
+```
+
+Whenever a file lands in either folder, the agent annotates it and writes the
+result to **`~/Downloads/Louie Labs/Annotated/`** (annotated copy + JSON sidecar
++ `detections.csv`). **Originals are never moved or modified.**
+
+critterwatch **only ever reads those two folders and writes to `Annotated`** —
+it never touches the rest of Downloads or anything else on disk. The model loads
+only when there's a new file to process, so it isn't holding the GPU in the
+background. You can also run one pass by hand:
+
+```bash
+python -m critterwatch ingest
+```
+
+---
+
 ## Output
 
 For every processed file, in the output folder:

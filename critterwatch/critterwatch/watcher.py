@@ -7,7 +7,7 @@ import sqlite3
 import threading
 import time
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, List, Optional
 
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
@@ -173,3 +173,56 @@ def run_watch(
         observer.stop()
         observer.join()
         worker_thread.join(timeout=5.0)
+
+
+# --------------------------------------------------------------------------- #
+# One-shot scan of the dedicated "Louie Labs" camera folders, used by the macOS
+# background agent. SANDBOXED: only ever reads the given input folders and only
+# ever writes to ``annotated_dir``. Never moves or modifies originals and never
+# looks anywhere else on disk.
+# --------------------------------------------------------------------------- #
+
+def scan_camera_folders(
+    config: Config,
+    input_dirs: List[Path],
+    annotated_dir: Path,
+    runner_factory: Callable[[Path], Callable[[Path], None]],
+    ledger: Ledger,
+    settle_seconds: float = 2.0,
+) -> List[Path]:
+    """Annotate new files sitting in ``input_dirs`` (the camera folders).
+
+    Originals are never moved or modified; annotated copies + JSON sidecars +
+    ``detections.csv`` are written to ``annotated_dir``. Already-annotated
+    outputs (``*_annotated.*``) and files already in the ledger are skipped, so
+    this is safe to re-run. ``runner_factory(annotated_dir)`` builds the
+    (expensive) processing callable and is only invoked when there is real work,
+    so an unrelated filesystem event does not load the model.
+    """
+    annotated_dir.mkdir(parents=True, exist_ok=True)
+
+    candidates: List[Path] = []
+    for folder in input_dirs:
+        if not folder.is_dir():
+            continue
+        for p in sorted(folder.iterdir()):
+            if (p.is_file() and config.is_watched(p)
+                    and "_annotated" not in p.stem
+                    and not ledger.already_done(p)):
+                candidates.append(p)
+
+    ready = [p for p in candidates if wait_for_stable_size(p, settle_seconds=settle_seconds)]
+    if not ready:
+        return []
+
+    process_fn = runner_factory(annotated_dir)  # loads the model now
+    done: List[Path] = []
+    for src in ready:
+        try:
+            process_fn(src)
+        except Exception:  # a bad file must not stop the rest
+            log.exception("annotate failed for %s", src)
+        ledger.mark_done(src)
+        done.append(src)
+        log.info("annotated %s -> %s", src.name, annotated_dir.name)
+    return done
