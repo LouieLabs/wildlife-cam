@@ -9,6 +9,9 @@ speciesnet==5.0.5
 # speciesnet; installed explicitly to match the documented stack).
 megadetector==10.0.22
 
+# YOLO (COCO) generalist, merged with SpeciesNet for dog/cat/person up close.
+ultralytics>=8.3
+
 # Folder watching, video/image IO, HEIC decoding, config, tests.
 watchdog==6.0.0
 opencv-python==4.13.0.92

@@ -24,6 +24,10 @@ class Config:
     state: str = "CA"
     watched_extensions: list[str] = field(default_factory=lambda: list(DEFAULT_EXTENSIONS))
     device: str = "auto"  # auto | cuda | mps | cpu
+    # YOLO (COCO) generalist for dog/cat/person up close, merged with SpeciesNet.
+    use_yolo: bool = True
+    yolo_model: str = "yolo11s.pt"
+    yolo_confidence: float = 0.25
 
     @classmethod
     def load(cls, path: Path) -> "Config":

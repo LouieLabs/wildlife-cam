@@ -1,9 +1,12 @@
 # critterwatch
 
-Watch a folder for newly saved photos and videos and automatically run wildlife
-detection on each one, using **Google's SpeciesNet** camera-trap ensemble
-(MegaDetector finds the boxes, SpeciesNet classifies the species). Output is an
-annotated copy of every file plus a JSON sidecar and a rolling `detections.csv`.
+Watch a folder for newly saved photos and videos and automatically run
+detection on each one. **Two models are combined:** Google's **SpeciesNet**
+camera-trap ensemble (MegaDetector boxes + species — best for *wild* animals)
+and **YOLO** (COCO — best for *dogs, cats, and people up close*). On each box the
+more specific label wins, so a pet dog reads `dog` while a wild coyote stays
+`coyote`. Output is an annotated copy of every file plus a JSON sidecar and a
+rolling `detections.csv`.
 
 Tuned for the **Santa Cruz Mountains** species set (deer, mountain lion, bobcat,
 coyote, gray fox, raccoon, skunk, opossum, rabbits, squirrels, woodrat, rat,

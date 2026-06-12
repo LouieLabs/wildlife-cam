@@ -49,6 +49,11 @@ class EnsembleRunner:
         log.info("loading SpeciesNet ensemble (%s)...", DEFAULT_MODEL)
         self.model = SpeciesNet(DEFAULT_MODEL, components="all", geofence=True)
         self.model_name = DEFAULT_MODEL
+
+        self.yolo = None
+        if config.use_yolo:
+            from .yolo import YoloRunner
+            self.yolo = YoloRunner(config)   # COCO generalist for dog/cat/person
         log.info("ensemble ready")
 
     def predict_record(self, path: Path) -> dict[str, Any]:
@@ -109,7 +114,12 @@ class EnsembleRunner:
 
     def detect_path(self, path: Path, img_w: int, img_h: int) -> DetectionResult:
         record = self.predict_record(path)
-        dets = self.parse_record(record)
+        sp_dets = self.parse_record(record)
+        if self.yolo is not None:
+            yolo_dets = self.yolo.detect(path, img_w, img_h)
+            dets = mapping.combine_detections(sp_dets, yolo_dets)
+        else:
+            dets = sp_dets
         return DetectionResult(dets, img_w, img_h,
                                model_version=str(record.get("model_version", "")),
                                raw=record)
