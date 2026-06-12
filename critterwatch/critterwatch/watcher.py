@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import queue
+import shutil
 import sqlite3
 import threading
 import time
@@ -173,6 +174,70 @@ def run_watch(
         observer.stop()
         observer.join()
         worker_thread.join(timeout=5.0)
+
+
+# --------------------------------------------------------------------------- #
+# Router: move ONLY camera-interface files from Downloads into the camera
+# folders. Both Snapshot and Record downloads start with this prefix (set in the
+# firmware's snap() / toggleRecord()). Nothing else is ever moved.
+# --------------------------------------------------------------------------- #
+
+CAMERA_PREFIX = "wildcam_"
+
+
+def _unique_path(dest: Path) -> Path:
+    """``dest``, or ``dest`` with a numeric suffix if it already exists."""
+    if not dest.exists():
+        return dest
+    stem, suffix, parent = dest.stem, dest.suffix, dest.parent
+    i = 1
+    while True:
+        candidate = parent / f"{stem}_{i}{suffix}"
+        if not candidate.exists():
+            return candidate
+        i += 1
+
+
+def route_camera_files(
+    config: Config,
+    downloads: Path,
+    images_dir: Path,
+    videos_dir: Path,
+    settle_seconds: float = 2.0,
+) -> List[Path]:
+    """Move ONLY camera-interface files out of ``downloads`` into the folders.
+
+    Strict by design: a file is moved only if its name starts with ``wildcam_``
+    (the prefix the camera's Snapshot/Record buttons use) AND it is a known
+    image/video type. Every other file in Downloads is left completely untouched.
+
+    Images go to ``images_dir``, videos to ``videos_dir``. Returns moved paths.
+    """
+    if not downloads.is_dir():
+        return []
+    images_dir.mkdir(parents=True, exist_ok=True)
+    videos_dir.mkdir(parents=True, exist_ok=True)
+
+    routed: List[Path] = []
+    for p in sorted(downloads.iterdir()):
+        if not p.is_file():
+            continue
+        if not p.name.lower().startswith(CAMERA_PREFIX):
+            continue                       # <-- the safety gate: camera files only
+        if not config.is_watched(p):
+            continue
+        if not wait_for_stable_size(p, settle_seconds=settle_seconds):
+            continue                       # still downloading; catch it next time
+        dest_dir = videos_dir if config.is_video(p) else images_dir
+        dest = _unique_path(dest_dir / p.name)
+        try:
+            shutil.move(str(p), str(dest))
+        except OSError:
+            log.exception("could not move %s", p)
+            continue
+        routed.append(dest)
+        log.info("routed %s -> %s", p.name, dest_dir.name)
+    return routed
 
 
 # --------------------------------------------------------------------------- #

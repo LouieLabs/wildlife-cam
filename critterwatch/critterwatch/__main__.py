@@ -22,6 +22,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Dedicated, sandboxed "Louie Labs" layout the `ingest` command operates inside.
 # critterwatch ONLY ever reads these input folders and writes to ANNOTATED_SUBDIR.
+DEFAULT_DOWNLOADS = Path.home() / "Downloads"
 DEFAULT_LOUIE_LABS = Path.home() / "Downloads" / "Louie Labs"
 IMAGES_SUBDIR = "Wildlife Camera Images"
 VIDEOS_SUBDIR = "Wildlife Camera Videos"
@@ -57,6 +58,8 @@ def _build_parser() -> argparse.ArgumentParser:
                               "then exit (used by the macOS background agent)")
     ing.add_argument("--base", type=Path, default=DEFAULT_LOUIE_LABS,
                      help='Louie Labs folder (default: "~/Downloads/Louie Labs")')
+    ing.add_argument("--downloads", type=Path, default=DEFAULT_DOWNLOADS,
+                     help="route wildcam_* files from here (default: ~/Downloads)")
     return parser
 
 
@@ -80,14 +83,16 @@ def _run_ingest(args: argparse.Namespace, cfg: Config) -> int:
     Nothing outside ``base`` is ever touched.
     """
     from .pipeline import EnsembleRunner, Logger, process_file
-    from .watcher import Ledger, scan_camera_folders
+    from .watcher import Ledger, route_camera_files, scan_camera_folders
 
     base = args.base.expanduser().resolve()
+    downloads = args.downloads.expanduser().resolve()
     images_dir = base / IMAGES_SUBDIR
     videos_dir = base / VIDEOS_SUBDIR
     annotated_dir = base / ANNOTATED_SUBDIR
 
     print("[critterwatch] ingest (sandboxed to Louie Labs)")
+    print(f"[critterwatch] route from: {downloads}  (wildcam_* only)")
     print(f"[critterwatch] images  in: {images_dir}")
     print(f"[critterwatch] videos  in: {videos_dir}")
     print(f"[critterwatch] annotated ->: {annotated_dir}")
@@ -96,6 +101,12 @@ def _run_ingest(args: argparse.Namespace, cfg: Config) -> int:
         print(f"[critterwatch] Louie Labs folder not found: {base}")
         return 2
 
+    # 1) move ONLY camera-interface files (wildcam_*) from Downloads into the folders
+    routed = route_camera_files(cfg, downloads, images_dir, videos_dir)
+    if routed:
+        print(f"[critterwatch] routed {len(routed)} camera file(s) from Downloads")
+
+    # 2) annotate any new files now sitting in the folders
     ledger = Ledger(base / ".critterwatch_ledger.sqlite3")
 
     def factory(out_dir: Path):
@@ -109,7 +120,7 @@ def _run_ingest(args: argparse.Namespace, cfg: Config) -> int:
     finally:
         ledger.close()
 
-    print(f"[critterwatch] ingest done: {len(done)} new file(s) annotated")
+    print(f"[critterwatch] ingest done: {len(routed)} routed, {len(done)} annotated")
     return 0
 
 

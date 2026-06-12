@@ -84,30 +84,41 @@ on first run.
 
 ## Fully automatic mode (macOS) — recommended
 
-Hands-off, and strictly **sandboxed to one folder**. Make a `Louie Labs` folder
-in Downloads with two subfolders:
+Hands-off. The camera's Snapshot/Record buttons download files named `wildcam_*`
+to Downloads; the agent files them away and annotates them automatically.
+
+Make a `Louie Labs` folder in Downloads with two subfolders:
 
 ```
 ~/Downloads/Louie Labs/
-  Wildlife Camera Images/    <- drop snapshots here
-  Wildlife Camera Videos/    <- drop recordings here
+  Wildlife Camera Images/
+  Wildlife Camera Videos/
+  Annotated/              (auto-created)
 ```
 
-Then install the background agent (one time):
+Install the background agent (one time):
 
 ```bash
-./install_agent.sh      # start auto-annotation
-./uninstall_agent.sh    # stop it later
+./install_agent.sh      # start
+./uninstall_agent.sh    # stop
 ```
 
-Whenever a file lands in either folder, the agent annotates it and writes the
-result to **`~/Downloads/Louie Labs/Annotated/`** (annotated copy + JSON sidecar
-+ `detections.csv`). **Originals are never moved or modified.**
+On any new download, the agent:
 
-critterwatch **only ever reads those two folders and writes to `Annotated`** —
-it never touches the rest of Downloads or anything else on disk. The model loads
-only when there's a new file to process, so it isn't holding the GPU in the
-background. You can also run one pass by hand:
+1. moves **only** `wildcam_*` files from Downloads into **Wildlife Camera
+   Images** (photos) or **Wildlife Camera Videos** (recordings), then
+2. annotates them, writing the result to **`Annotated/`** (annotated copy +
+   JSON sidecar + `detections.csv`).
+
+**Safety:** the router only ever touches files whose name starts with
+`wildcam_` — exactly what the camera interface produces. Every other file in
+Downloads (personal photos, videos, PDFs, …) is never read or moved. Routed
+camera files stay in the camera folders unmodified; annotations go to
+`Annotated/`. The model loads only when there's real work.
+
+> Recordings only auto-route after you re-flash the camera with the firmware
+> that prefixes recordings with `wildcam_` (snapshots already do). You can also
+> drop files into the camera folders by hand, and run one pass manually:
 
 ```bash
 python -m critterwatch ingest

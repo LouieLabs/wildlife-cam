@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# Install the macOS LaunchAgent that auto-runs critterwatch whenever a file lands
-# in your dedicated Louie Labs camera folders. It annotates them and writes the
-# results to "Louie Labs/Annotated". It NEVER touches anything outside Louie Labs.
+# Install the macOS LaunchAgent that auto-runs critterwatch. On any change to
+# Downloads or the camera folders, it:
+#   1. moves ONLY camera-interface files (named wildcam_*) from Downloads into
+#      "Louie Labs/Wildlife Camera Images" or "Wildlife Camera Videos", then
+#   2. annotates new files in those folders -> "Louie Labs/Annotated".
+# It never moves or reads any non-wildcam_ file, and writes only inside Louie Labs.
 #
 # Usage:  ./install_agent.sh        (run once)
 # Stop:   ./uninstall_agent.sh
@@ -50,6 +53,7 @@ cat > "$PLIST" <<EOF
   </dict>
   <key>WatchPaths</key>
   <array>
+    <string>$HOME/Downloads</string>
     <string>$IMAGES</string>
     <string>$VIDEOS</string>
   </array>
@@ -65,6 +69,7 @@ launchctl unload "$PLIST" 2>/dev/null || true
 launchctl load -w "$PLIST"
 echo "installed + loaded: $LABEL"
 echo "watching:"
+echo "  $HOME/Downloads        (routes wildcam_* camera files only)"
 echo "  $IMAGES"
 echo "  $VIDEOS"
 echo "annotated results -> $BASE/Annotated"

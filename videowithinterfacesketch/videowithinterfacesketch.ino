@@ -647,7 +647,7 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
         const blob=new Blob(recChunks,{type:'video/webm'});
         const url=URL.createObjectURL(blob);
         const g=id=>document.getElementById(id).textContent;
-        const fn=CAMERA_NAME.replace(/\s+/g,'_')+'_'+g('statDate').replace(/-/g,'')+'_'+g('statTime').replace(/:/g,'')+'.webm';
+        const fn='wildcam_'+CAMERA_NAME.replace(/\s+/g,'_')+'_'+g('statDate').replace(/-/g,'')+'_'+g('statTime').replace(/:/g,'')+'.webm';
         const a=document.createElement('a'); a.href=url; a.download=fn; a.click();
         setTimeout(()=>URL.revokeObjectURL(url),4000);
         status.textContent='Recording saved: '+fn;
