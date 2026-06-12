@@ -205,11 +205,16 @@ def route_camera_files(
     videos_dir: Path,
     settle_seconds: float = 2.0,
 ) -> List[Path]:
-    """Move ONLY camera-interface files out of ``downloads`` into the folders.
+    """Move camera-interface files out of ``downloads`` into the folders.
 
-    Strict by design: a file is moved only if its name starts with ``wildcam_``
-    (the prefix the camera's Snapshot/Record buttons use) AND it is a known
-    image/video type. Every other file in Downloads is left completely untouched.
+    A file is moved only if it is a camera file:
+      * its name starts with ``wildcam_`` (snapshots; recordings too after a
+        firmware re-flash), OR
+      * it is a ``.webm`` — the format the Record button always produces,
+        regardless of the filename.
+
+    Personal downloads (.jpg without the prefix, .mp4, .mov, PDFs, ...) are never
+    touched. The camera is realistically the only source of .webm in Downloads.
 
     Images go to ``images_dir``, videos to ``videos_dir``. Returns moved paths.
     """
@@ -222,8 +227,12 @@ def route_camera_files(
     for p in sorted(downloads.iterdir()):
         if not p.is_file():
             continue
-        if not p.name.lower().startswith(CAMERA_PREFIX):
-            continue                       # <-- the safety gate: camera files only
+        # camera-interface files only: a wildcam_ name OR a .webm recording
+        # (.webm is what the Record button always produces, whatever the name).
+        is_camera = (p.name.lower().startswith(CAMERA_PREFIX)
+                     or p.suffix.lower() == ".webm")
+        if not is_camera:
+            continue
         if not config.is_watched(p):
             continue
         if not wait_for_stable_size(p, settle_seconds=settle_seconds):

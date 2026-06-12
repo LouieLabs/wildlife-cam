@@ -106,20 +106,20 @@ Install the background agent (one time):
 
 On any new download, the agent:
 
-1. moves **only** `wildcam_*` files from Downloads into **Wildlife Camera
-   Images** (photos) or **Wildlife Camera Videos** (recordings), then
+1. moves camera files from Downloads — `wildcam_*` snapshots and `.webm`
+   recordings — into **Wildlife Camera Images** or **Wildlife Camera Videos**, then
 2. annotates them — the annotated copy + `detections.csv` go to **`Annotated/`**,
    and the per-file `.json` sidecar goes to **`JSONs/`**.
 
-**Safety:** the router only ever touches files whose name starts with
-`wildcam_` — exactly what the camera interface produces. Every other file in
-Downloads (personal photos, videos, PDFs, …) is never read or moved. Routed
-camera files stay in the camera folders unmodified; annotations go to
-`Annotated/`. The model loads only when there's real work.
+**Safety:** the router only moves `wildcam_*` files and `.webm` recordings —
+what the camera interface produces. Your personal `.jpg` / `.mp4` / `.mov` / PDF
+downloads are never read or moved (the camera is the only realistic source of
+`.webm` in Downloads). Annotations go to `Annotated/`; originals stay put. The
+model loads only when there's real work.
 
-> Recordings only auto-route after you re-flash the camera with the firmware
-> that prefixes recordings with `wildcam_` (snapshots already do). You can also
-> drop files into the camera folders by hand, and run one pass manually:
+> No re-flash needed — recordings auto-route by their `.webm` type, whatever the
+> filename. You can also drop files into the camera folders by hand, and run one
+> pass manually:
 
 ```bash
 python -m critterwatch ingest
