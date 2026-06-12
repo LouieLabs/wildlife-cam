@@ -1,0 +1,17 @@
+# critterwatch dependencies (verified on macOS arm64 / Python 3.12).
+#
+# speciesnet pulls the heavy ML stack (torch, torchvision, numpy, opencv,
+# MegaDetector internals) as transitive deps; it drives the resolution, so we
+# pin it and let it choose compatible torch/torchvision for your platform.
+speciesnet==5.0.5
+
+# MegaDetector standalone package (the ensemble's detector also ships inside
+# speciesnet; installed explicitly to match the documented stack).
+megadetector==10.0.22
+
+# Folder watching, video/image IO, HEIC decoding, config, tests.
+watchdog==6.0.0
+opencv-python==4.13.0.92
+pillow-heif>=0.16
+PyYAML==6.0.3
+pytest==9.0.3

@@ -1,0 +1,18 @@
+# virtualenv
+.venv/
+
+# runtime folders + generated config/logs
+input/
+output/
+config.yaml
+introspect_output.json
+
+# python
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+
+# downloaded model weights live in ~/.cache/kagglehub (not here), but just in case
+*.pt
+*.onnx
