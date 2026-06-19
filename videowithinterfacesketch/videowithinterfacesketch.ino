@@ -6,6 +6,7 @@
 #include <HTTPClient.h>                   // geolocation + weather HTTP calls
 #include <WiFiClientSecure.h>             // HTTPS for the weather API
 #include "secrets.h"                      // WIFI_SSID / WIFI_PASSWORD (gitignored)
+#include "halow_SD.h"                     // microSD over SPI (gives the SD object; pulls FS.h + SPI.h)
 
 // --- Time / NTP (requires the ESP32 to have internet access) ---
 // POSIX TZ string. Set to US Pacific (auto-handles PST/PDT daylight saving).
@@ -65,6 +66,15 @@ bool    g_located = false;
 float   g_weather_c = 0;
 bool    g_weather_ok = false;
 unsigned long g_lastWeather = 0;
+
+// --- microSD card (built-in slot; rides the board's default SPI bus, which the
+// camera does NOT use). If the card isn't detected, these are the pins to adjust. ---
+#define SD_SCK_PIN   9
+#define SD_MISO_PIN  11
+#define SD_MOSI_PIN  10
+#define SD_CS_PIN    8
+bool     g_sd_ok = false;     // true once a card is mounted
+uint32_t g_sd_count = 0;      // fallback filename counter before NTP time is set
 
 static const char PROGMEM INDEX_HTML[] = R"rawliteral(
 <!DOCTYPE html><html lang="en"><head>
@@ -377,7 +387,7 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
     if(bc) bc.classList.toggle('on', saveMode === 'computer');
     if(bs) bs.classList.toggle('on', saveMode === 'sd');
     if(status) status.textContent = (saveMode === 'sd')
-      ? 'Upload to SD card — SD not set up yet, captures are not saved'
+      ? 'Upload to SD card — snapshots saved on the camera'
       : 'Saving to this computer';
   }
   try { setSaveMode(saveMode); } catch(e){}   // apply remembered choice; never block the page
@@ -493,11 +503,20 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
     return {date, time, exifDt:date.replace(/-/g,':')+' '+time};
   }
 
+  // SD mode: tell the camera to save the snapshot onto its SD card.
+  async function snapToSD(){
+    if(status) status.textContent='Saving to SD card…';
+    try{
+      const r=await fetch('/capture_sd?t='+Date.now());
+      const txt=(await r.text()).trim();
+      if(txt.indexOf('SAVED')>=0)       status.textContent='Saved to SD card';
+      else if(txt.indexOf('NO_SD')>=0)  status.textContent='No SD card detected in the camera';
+      else                              status.textContent='SD write failed';
+    }catch(e){ status.textContent='SD save failed: '+e; }
+  }
+
   async function snap(){
-    if(saveMode === 'sd'){
-      if(status) status.textContent='SD card not set up yet — nothing saved.';
-      return;
-    }
+    if(saveMode === 'sd'){ return snapToSD(); }
     status.textContent='Capturing…';
     let st={};
     try{ st=await fetch('/status').then(r=>r.json()); }catch(e){}
@@ -672,7 +691,7 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
   function toggleRecord(){
     const btn=document.getElementById('recBtn');
     if(saveMode === 'sd' && !recording){
-      if(status) status.textContent='SD card not set up yet — recording disabled.';
+      if(status) status.textContent="Video to SD isn't supported yet — use Snapshot.";
       return;
     }
     if(!recording){
@@ -989,21 +1008,50 @@ static esp_err_t status_handler(httpd_req_t *req) {
   lt.tm_isdst = 0; gt.tm_isdst = 0;
   long tz_offset = (long)(mktime(&lt) - mktime(&gt));
 
-  char json[360];
+  char json[400];
   int len = snprintf(json, sizeof(json),
     "{\"temp_c\":%.1f,\"temp_f\":%.1f,"
     "\"weather_c\":%.1f,\"weather_f\":%.1f,\"weather_ok\":%s,"
     "\"city\":\"%s\",\"located\":%s,\"lat\":%.5f,\"lon\":%.5f,"
+    "\"sd_ok\":%s,"
     "\"heap\":%u,\"uptime_s\":%lu,"
     "\"epoch\":%lld,\"tz_offset\":%ld,\"synced\":%s}",
     tc, tc * 9.0f / 5.0f + 32.0f,
     g_weather_c, g_weather_c * 9.0f / 5.0f + 32.0f, g_weather_ok ? "true" : "false",
     g_city.c_str(), g_located ? "true" : "false", g_lat, g_lon,
+    g_sd_ok ? "true" : "false",
     (unsigned)ESP.getFreeHeap(), (unsigned long)(millis() / 1000),
     (long long)now, tz_offset, synced ? "true" : "false");
   httpd_resp_set_type(req, "application/json");
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
   return httpd_resp_send(req, json, len);
+}
+
+// Snapshot straight to the SD card (used when the switch is on "Upload to SD card").
+static esp_err_t capture_sd_handler(httpd_req_t *req) {
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  if (!g_sd_ok) return httpd_resp_send(req, "NO_SD", 5);
+
+  camera_fb_t *fb = esp_camera_fb_get();
+  if (!fb) { httpd_resp_send_500(req); return ESP_FAIL; }
+
+  char path[64];
+  time_t now = time(NULL);
+  if (now > 1700000000) {  // NTP set -> name by date/time
+    struct tm t; localtime_r(&now, &t);
+    snprintf(path, sizeof(path), "/wildcam/wildcam_%04d%02d%02d_%02d%02d%02d.jpg",
+             t.tm_year + 1900, t.tm_mon + 1, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec);
+  } else {                 // no time yet -> incrementing counter
+    snprintf(path, sizeof(path), "/wildcam/wildcam_%lu.jpg", (unsigned long)(++g_sd_count));
+  }
+
+  bool ok = false;
+  File f = SD.open(path, FILE_WRITE);
+  if (f) { ok = (f.write(fb->buf, fb->len) == fb->len); f.close(); }
+  esp_camera_fb_return(fb);
+
+  Serial.printf("SD save %s: %s\n", path, ok ? "ok" : "FAIL");
+  return httpd_resp_send(req, ok ? "SAVED" : "WRITE_FAIL", ok ? 5 : 10);
 }
 
 void startCameraServer() {
@@ -1017,12 +1065,14 @@ void startCameraServer() {
   httpd_uri_t capture_uri = { .uri="/capture", .method=HTTP_GET, .handler=capture_handler, .user_ctx=NULL };
   httpd_uri_t control_uri = { .uri="/control", .method=HTTP_GET, .handler=control_handler, .user_ctx=NULL };
   httpd_uri_t status_uri  = { .uri="/status",  .method=HTTP_GET, .handler=status_handler,  .user_ctx=NULL };
+  httpd_uri_t capturesd_uri = { .uri="/capture_sd", .method=HTTP_GET, .handler=capture_sd_handler, .user_ctx=NULL };
 
   if (httpd_start(&camera_httpd, &config) == ESP_OK) {
     httpd_register_uri_handler(camera_httpd, &index_uri);
     httpd_register_uri_handler(camera_httpd, &capture_uri);
     httpd_register_uri_handler(camera_httpd, &control_uri);
     httpd_register_uri_handler(camera_httpd, &status_uri);
+    httpd_register_uri_handler(camera_httpd, &capturesd_uri);
   }
 
   // ---- Dedicated stream server on port 81 ----
@@ -1081,6 +1131,19 @@ void setup() {
   } else {
     Serial.println("Temp sensor unavailable");
     temp_sensor = NULL;
+  }
+
+  // microSD: try to mount the card. Non-blocking and fully optional — if it
+  // fails (no card / wrong pins), the camera and live stream are unaffected and
+  // SD-mode snapshots simply report "no card". These pins don't touch the camera.
+  SPI.begin(SD_SCK_PIN, SD_MISO_PIN, SD_MOSI_PIN, SD_CS_PIN);
+  if (SD.begin(SD_CS_PIN)) {
+    g_sd_ok = true;
+    Serial.printf("SD card OK (%llu MB)\n", SD.cardSize() / (1024ULL * 1024ULL));
+    if (!SD.exists("/wildcam")) SD.mkdir("/wildcam");
+  } else {
+    g_sd_ok = false;
+    Serial.println("SD card not detected (camera/stream still work)");
   }
 
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
