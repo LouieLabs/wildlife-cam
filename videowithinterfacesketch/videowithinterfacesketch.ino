@@ -67,12 +67,14 @@ float   g_weather_c = 0;
 bool    g_weather_ok = false;
 unsigned long g_lastWeather = 0;
 
-// --- microSD card (built-in slot; rides the board's default SPI bus, which the
-// camera does NOT use). If the card isn't detected, these are the pins to adjust. ---
-#define SD_SCK_PIN   9
-#define SD_MISO_PIN  11
-#define SD_MOSI_PIN  10
-#define SD_CS_PIN    8
+// --- microSD card (built-in slot). Pins + dedicated HSPI bus taken verbatim from
+// Heltec's own HT-HC33 example (wifi-halow/As_VideoWebServer/sd_read_write.h).
+// None of these overlap the camera pins. ---
+#define SD_CLK_PIN   15
+#define SD_MISO_PIN  16
+#define SD_MOSI_PIN  11
+#define SD_CS_PIN    10
+SPIClass SD_SPI(HSPI);        // the card has its own dedicated SPI bus
 bool     g_sd_ok = false;     // true once a card is mounted
 uint32_t g_sd_count = 0;      // fallback filename counter before NTP time is set
 
@@ -1136,8 +1138,8 @@ void setup() {
   // microSD: try to mount the card. Non-blocking and fully optional — if it
   // fails (no card / wrong pins), the camera and live stream are unaffected and
   // SD-mode snapshots simply report "no card". These pins don't touch the camera.
-  SPI.begin(SD_SCK_PIN, SD_MISO_PIN, SD_MOSI_PIN, SD_CS_PIN);
-  if (SD.begin(SD_CS_PIN)) {
+  SD_SPI.begin(SD_CLK_PIN, SD_MISO_PIN, SD_MOSI_PIN, SD_CS_PIN);
+  if (SD.begin(SD_CS_PIN, SD_SPI)) {
     g_sd_ok = true;
     Serial.printf("SD card OK (%llu MB)\n", SD.cardSize() / (1024ULL * 1024ULL));
     if (!SD.exists("/wildcam")) SD.mkdir("/wildcam");
