@@ -1135,18 +1135,24 @@ void setup() {
     temp_sensor = NULL;
   }
 
-  // microSD: try to mount the card. Non-blocking and fully optional — if it
-  // fails (no card / wrong pins), the camera and live stream are unaffected and
-  // SD-mode snapshots simply report "no card". These pins don't touch the camera.
+  // microSD on the HT-HC33's dedicated HSPI bus (Heltec As_VideoWebServer wiring).
+  // Optional + non-blocking: if it fails, the camera/stream are unaffected.
+  // The pin line below confirms which pins the *flashed* firmware is actually using.
+  Serial.printf("[SD] mounting on HSPI  CLK=%d MISO=%d MOSI=%d CS=%d\n",
+                SD_CLK_PIN, SD_MISO_PIN, SD_MOSI_PIN, SD_CS_PIN);
   SD_SPI.begin(SD_CLK_PIN, SD_MISO_PIN, SD_MOSI_PIN, SD_CS_PIN);
-  if (SD.begin(SD_CS_PIN, SD_SPI)) {
-    g_sd_ok = true;
-    Serial.printf("SD card OK (%llu MB)\n", SD.cardSize() / (1024ULL * 1024ULL));
-    if (!SD.exists("/wildcam")) SD.mkdir("/wildcam");
-  } else {
-    g_sd_ok = false;
-    Serial.println("SD card not detected (camera/stream still work)");
+  for (int attempt = 1; attempt <= 3 && !g_sd_ok; attempt++) {
+    if (SD.begin(SD_CS_PIN, SD_SPI)) {
+      g_sd_ok = true;
+      Serial.printf("[SD] card OK (%llu MB, type %d)\n",
+                    SD.cardSize() / (1024ULL * 1024ULL), (int)SD.cardType());
+      if (!SD.exists("/wildcam")) SD.mkdir("/wildcam");
+    } else {
+      Serial.printf("[SD] mount failed (attempt %d/3)\n", attempt);
+      delay(300);
+    }
   }
+  if (!g_sd_ok) Serial.println("[SD] not detected — camera/stream still work");
 
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   Serial.print("Connecting to WiFi");
