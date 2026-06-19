@@ -108,6 +108,17 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
   .dot{width:8px;height:8px;background:#ef4444;border-radius:50%;animation:pulse 1.5s infinite}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
   .actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+  .saverow{margin-top:12px}
+  .saverow .lbl{font-size:10px;color:#8a8a9a;margin-bottom:6px;
+    text-transform:uppercase;letter-spacing:1.2px}
+  .seg2{display:flex;width:100%;background:rgba(0,0,0,0.3);
+    border:1px solid rgba(255,255,255,0.12);border-radius:10px;overflow:hidden}
+  .seg2 button{flex:1;min-width:0;background:transparent;color:#9a9aa6;border:0;
+    padding:11px 10px;font-size:13px;font-weight:700;border-radius:0;box-shadow:none;
+    transition:background 0.15s,color 0.15s}
+  .seg2 button:hover{transform:none;box-shadow:none;background:rgba(255,255,255,0.04)}
+  .seg2 button.on.green{background:#16a34a;color:#fff}
+  .seg2 button.on.red{background:#dc2626;color:#fff}
   button{flex:1;min-width:90px;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);
     color:#fff;border:0;padding:10px 14px;border-radius:10px;font-weight:600;font-size:13px;
     cursor:pointer;transition:transform 0.15s,box-shadow 0.15s}
@@ -175,6 +186,13 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
         <button class="p-uw"    onclick="applyPreset(PRESETS.underwater)">Underwater</button>
         <button class="p-day"   onclick="applyPreset(PRESETS.daylight)">Daylight</button>
         <button class="p-night" onclick="applyPreset(PRESETS.night)">Night</button>
+      </div>
+      <div class="saverow">
+        <div class="lbl">Save mode</div>
+        <div class="seg2" id="saveSeg">
+          <button id="modeComputer" class="green" onclick="setSaveMode('computer')">Save to Computer</button>
+          <button id="modeSD" class="red" onclick="setSaveMode('sd')">Upload to SD card</button>
+        </div>
       </div>
       <div class="actions">
         <button onclick="snap()">Snapshot</button>
@@ -342,7 +360,27 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
 
   // The MJPEG stream lives on its own server on port 81 (this page is on 80).
   const STREAM_URL = location.protocol + '//' + location.hostname + ':81/stream';
-  stream.src = STREAM_URL;
+  stream.src = STREAM_URL;   // <-- live feed starts HERE, before any switch code
+
+  // ====== SAVE MODE SWITCH (browser-side only; never touches the camera) ======
+  // 'computer' (green): snapshots/recordings download to this computer (current).
+  // 'sd'       (red):   nothing is saved for now (SD card not set up yet).
+  // The live stream runs the same in both modes. Everything below is wrapped so
+  // a hiccup here can NEVER stop the feed or the rest of the page.
+  let saveMode = 'computer';
+  try { saveMode = localStorage.getItem('cw_saveMode') || 'computer'; } catch(e){}
+  function setSaveMode(m){
+    saveMode = (m === 'sd') ? 'sd' : 'computer';
+    try { localStorage.setItem('cw_saveMode', saveMode); } catch(e){}
+    const bc = document.getElementById('modeComputer');
+    const bs = document.getElementById('modeSD');
+    if(bc) bc.classList.toggle('on', saveMode === 'computer');
+    if(bs) bs.classList.toggle('on', saveMode === 'sd');
+    if(status) status.textContent = (saveMode === 'sd')
+      ? 'Upload to SD card — SD not set up yet, captures are not saved'
+      : 'Saving to this computer';
+  }
+  try { setSaveMode(saveMode); } catch(e){}   // apply remembered choice; never block the page
 
   // ============ DATE / TIME / TEMP ============
   // Time comes from the CAMERA's NTP-synced clock (via /status), not the
@@ -456,6 +494,10 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
   }
 
   async function snap(){
+    if(saveMode === 'sd'){
+      if(status) status.textContent='SD card not set up yet — nothing saved.';
+      return;
+    }
     status.textContent='Capturing…';
     let st={};
     try{ st=await fetch('/status').then(r=>r.json()); }catch(e){}
@@ -629,6 +671,10 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
   }
   function toggleRecord(){
     const btn=document.getElementById('recBtn');
+    if(saveMode === 'sd' && !recording){
+      if(status) status.textContent='SD card not set up yet — recording disabled.';
+      return;
+    }
     if(!recording){
       if(!streaming) toggleStream();                 // make sure the feed is live
       recording=true; recDraw();
@@ -750,6 +796,8 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
 
 static esp_err_t index_handler(httpd_req_t *req) {
   httpd_resp_set_type(req, "text/html");
+  // Don't let the browser cache the page, so a re-flash always serves fresh HTML.
+  httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
   return httpd_resp_send(req, (const char*)INDEX_HTML, strlen(INDEX_HTML));
 }
 
