@@ -357,28 +357,31 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
   const zbadge = document.getElementById('zbadge');
   let streaming = true;
 
+  // The MJPEG stream lives on its own server on port 81 (this page is on 80).
+  // Set this FIRST, before any other init, so nothing can stop the feed loading.
+  const STREAM_URL = location.protocol + '//' + location.hostname + ':81/stream';
+  stream.src = STREAM_URL;
+
   // ====== CHANGE YOUR CAMERA NAME HERE ======
   const CAMERA_NAME = "Camera 1";
 
   // ====== SAVE DESTINATION (the switch) ======
   // 'local' = download to this computer (your Louie Labs folders).
   // 'sd'    = save on the camera's SD card (the SD->Firebase uploader handles it).
-  let saveMode = localStorage.getItem('cw_saveMode') || 'local';
+  let saveMode = 'local';
+  try { saveMode = localStorage.getItem('cw_saveMode') || 'local'; } catch(e){}
   function setSaveMode(m){
     saveMode = (m === 'sd') ? 'sd' : 'local';
-    localStorage.setItem('cw_saveMode', saveMode);
-    document.getElementById('modeLocal').classList.toggle('active', saveMode === 'local');
-    document.getElementById('modeSD').classList.toggle('active', saveMode === 'sd');
+    try { localStorage.setItem('cw_saveMode', saveMode); } catch(e){}
+    const bl = document.getElementById('modeLocal'), bs = document.getElementById('modeSD');
+    if(bl) bl.classList.toggle('active', saveMode === 'local');
+    if(bs) bs.classList.toggle('active', saveMode === 'sd');
     fetch('/savemode?sd=' + (saveMode === 'sd' ? 1 : 0)).catch(()=>{});  // tell the camera
     status.textContent = (saveMode === 'sd')
       ? 'Saving to SD card + cloud (on the camera)'
       : 'Saving to this computer';
   }
-  setSaveMode(saveMode);   // apply the remembered choice on load
-
-  // The MJPEG stream lives on its own server on port 81 (this page is on 80).
-  const STREAM_URL = location.protocol + '//' + location.hostname + ':81/stream';
-  stream.src = STREAM_URL;
+  try { setSaveMode(saveMode); } catch(e){}   // apply remembered choice; never block the page
 
   // ============ DATE / TIME / TEMP ============
   // Time comes from the CAMERA's NTP-synced clock (via /status), not the
