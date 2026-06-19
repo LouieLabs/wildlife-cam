@@ -806,6 +806,9 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
 
 static esp_err_t index_handler(httpd_req_t *req) {
   httpd_resp_set_type(req, "text/html");
+  // Never let the browser cache the page, so a re-flash always serves fresh HTML
+  // (stale cached pages are the classic "I re-flashed but it's still broken").
+  httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
   return httpd_resp_send(req, (const char*)INDEX_HTML, strlen(INDEX_HTML));
 }
 
