@@ -66,6 +66,11 @@ float   g_weather_c = 0;
 bool    g_weather_ok = false;
 unsigned long g_lastWeather = 0;
 
+// Save destination chosen from the UI switch:
+//   false = browser downloads the capture to the computer (default)
+//   true  = save on the device to the SD card (SD->Firebase code reads this)
+bool g_save_to_sd = false;
+
 static const char PROGMEM INDEX_HTML[] = R"rawliteral(
 <!DOCTYPE html><html lang="en"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
@@ -108,6 +113,14 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
   .dot{width:8px;height:8px;background:#ef4444;border-radius:50%;animation:pulse 1.5s infinite}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
   .actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+  .saverow{display:flex;align-items:center;gap:10px;margin-top:12px;
+    font-size:12px;color:#b4b4c4;flex-wrap:wrap}
+  .seg{display:inline-flex;background:rgba(0,0,0,0.3);
+    border:1px solid rgba(255,255,255,0.1);border-radius:10px;overflow:hidden}
+  .seg button{flex:none;min-width:0;background:transparent;color:#b4b4c4;border:0;
+    padding:8px 14px;font-size:12px;font-weight:600;border-radius:0;box-shadow:none}
+  .seg button:hover{transform:none;box-shadow:none;background:rgba(255,255,255,0.05)}
+  .seg button.active{background:linear-gradient(135deg,#667eea,#764ba2);color:#fff}
   button{flex:1;min-width:90px;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);
     color:#fff;border:0;padding:10px 14px;border-radius:10px;font-weight:600;font-size:13px;
     cursor:pointer;transition:transform 0.15s,box-shadow 0.15s}
@@ -175,6 +188,13 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
         <button class="p-uw"    onclick="applyPreset(PRESETS.underwater)">Underwater</button>
         <button class="p-day"   onclick="applyPreset(PRESETS.daylight)">Daylight</button>
         <button class="p-night" onclick="applyPreset(PRESETS.night)">Night</button>
+      </div>
+      <div class="saverow">
+        <span>Save to:</span>
+        <div class="seg" id="saveSeg">
+          <button id="modeLocal" onclick="setSaveMode('local')">&#128187; My Computer</button>
+          <button id="modeSD" onclick="setSaveMode('sd')">&#9729; SD + Cloud</button>
+        </div>
       </div>
       <div class="actions">
         <button onclick="snap()">Snapshot</button>
@@ -340,6 +360,22 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
   // ====== CHANGE YOUR CAMERA NAME HERE ======
   const CAMERA_NAME = "Camera 1";
 
+  // ====== SAVE DESTINATION (the switch) ======
+  // 'local' = download to this computer (your Louie Labs folders).
+  // 'sd'    = save on the camera's SD card (the SD->Firebase uploader handles it).
+  let saveMode = localStorage.getItem('cw_saveMode') || 'local';
+  function setSaveMode(m){
+    saveMode = (m === 'sd') ? 'sd' : 'local';
+    localStorage.setItem('cw_saveMode', saveMode);
+    document.getElementById('modeLocal').classList.toggle('active', saveMode === 'local');
+    document.getElementById('modeSD').classList.toggle('active', saveMode === 'sd');
+    fetch('/savemode?sd=' + (saveMode === 'sd' ? 1 : 0)).catch(()=>{});  // tell the camera
+    status.textContent = (saveMode === 'sd')
+      ? 'Saving to SD card + cloud (on the camera)'
+      : 'Saving to this computer';
+  }
+  setSaveMode(saveMode);   // apply the remembered choice on load
+
   // The MJPEG stream lives on its own server on port 81 (this page is on 80).
   const STREAM_URL = location.protocol + '//' + location.hostname + ':81/stream';
   stream.src = STREAM_URL;
@@ -455,7 +491,20 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
     return {date, time, exifDt:date.replace(/-/g,':')+' '+time};
   }
 
+  // SD + Cloud mode: tell the camera to save the snapshot onto its SD card.
+  async function snapToSD(){
+    status.textContent='Saving to SD…';
+    try{
+      const r=await fetch('/capture_sd?t='+Date.now());
+      const txt=(await r.text()).trim();
+      status.textContent = txt.indexOf('SAVED')>=0
+        ? 'Photo saved to SD card (uploading to cloud)'
+        : "SD saving isn't wired up on the camera yet";
+    }catch(e){ status.textContent='SD save failed: '+e; }
+  }
+
   async function snap(){
+    if(saveMode === 'sd'){ return snapToSD(); }
     status.textContent='Capturing…';
     let st={};
     try{ st=await fetch('/status').then(r=>r.json()); }catch(e){}
@@ -629,6 +678,10 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
   }
   function toggleRecord(){
     const btn=document.getElementById('recBtn');
+    if(saveMode === 'sd' && !recording){
+      status.textContent='In SD + Cloud mode, recording is handled on the camera (SD → cloud).';
+      return;
+    }
     if(!recording){
       if(!streaming) toggleStream();                 // make sure the feed is live
       recording=true; recDraw();
@@ -924,6 +977,39 @@ static void fetchWeather() {
   Serial.println("Weather fetch failed");
 }
 
+// Set the save destination from the UI switch (?sd=1 -> SD card, ?sd=0 -> computer).
+static esp_err_t savemode_handler(httpd_req_t *req) {
+  char query[32], val[8];
+  if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK &&
+      httpd_query_key_value(query, "sd", val, sizeof(val)) == ESP_OK) {
+    g_save_to_sd = (atoi(val) != 0);
+  }
+  Serial.printf("save mode: %s\n", g_save_to_sd ? "SD + cloud" : "local (computer)");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  return httpd_resp_send(req, "OK", 2);
+}
+
+// ===========================================================================
+// >>> SD / Firebase coder: implement this to write a JPEG to the SD card.
+//     Return true on success; your auto-uploader then pushes it to Firebase.
+//     Until it's implemented, "SD + Cloud" snapshots report "not wired yet".
+// ===========================================================================
+static bool cw_save_jpeg_to_sd(const uint8_t *buf, size_t len) {
+  (void)buf; (void)len;
+  return false;   // <-- replace with the real SD write (SD_MMC or SD over SPI)
+}
+
+// Snapshot straight to the SD card (used when the switch is on "SD + Cloud").
+static esp_err_t capture_sd_handler(httpd_req_t *req) {
+  camera_fb_t *fb = esp_camera_fb_get();
+  if (!fb) { httpd_resp_send_500(req); return ESP_FAIL; }
+  bool ok = cw_save_jpeg_to_sd(fb->buf, fb->len);
+  esp_camera_fb_return(fb);
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  const char *msg = ok ? "SAVED" : "SD_NOT_WIRED";
+  return httpd_resp_send(req, msg, strlen(msg));
+}
+
 static esp_err_t status_handler(httpd_req_t *req) {
   float tc = 0;
   if (temp_sensor) temperature_sensor_get_celsius(temp_sensor, &tc);
@@ -941,16 +1027,18 @@ static esp_err_t status_handler(httpd_req_t *req) {
   lt.tm_isdst = 0; gt.tm_isdst = 0;
   long tz_offset = (long)(mktime(&lt) - mktime(&gt));
 
-  char json[360];
+  char json[400];
   int len = snprintf(json, sizeof(json),
     "{\"temp_c\":%.1f,\"temp_f\":%.1f,"
     "\"weather_c\":%.1f,\"weather_f\":%.1f,\"weather_ok\":%s,"
     "\"city\":\"%s\",\"located\":%s,\"lat\":%.5f,\"lon\":%.5f,"
+    "\"save_to_sd\":%s,"
     "\"heap\":%u,\"uptime_s\":%lu,"
     "\"epoch\":%lld,\"tz_offset\":%ld,\"synced\":%s}",
     tc, tc * 9.0f / 5.0f + 32.0f,
     g_weather_c, g_weather_c * 9.0f / 5.0f + 32.0f, g_weather_ok ? "true" : "false",
     g_city.c_str(), g_located ? "true" : "false", g_lat, g_lon,
+    g_save_to_sd ? "true" : "false",
     (unsigned)ESP.getFreeHeap(), (unsigned long)(millis() / 1000),
     (long long)now, tz_offset, synced ? "true" : "false");
   httpd_resp_set_type(req, "application/json");
@@ -969,12 +1057,16 @@ void startCameraServer() {
   httpd_uri_t capture_uri = { .uri="/capture", .method=HTTP_GET, .handler=capture_handler, .user_ctx=NULL };
   httpd_uri_t control_uri = { .uri="/control", .method=HTTP_GET, .handler=control_handler, .user_ctx=NULL };
   httpd_uri_t status_uri  = { .uri="/status",  .method=HTTP_GET, .handler=status_handler,  .user_ctx=NULL };
+  httpd_uri_t savemode_uri  = { .uri="/savemode",   .method=HTTP_GET, .handler=savemode_handler,   .user_ctx=NULL };
+  httpd_uri_t capturesd_uri = { .uri="/capture_sd", .method=HTTP_GET, .handler=capture_sd_handler, .user_ctx=NULL };
 
   if (httpd_start(&camera_httpd, &config) == ESP_OK) {
     httpd_register_uri_handler(camera_httpd, &index_uri);
     httpd_register_uri_handler(camera_httpd, &capture_uri);
     httpd_register_uri_handler(camera_httpd, &control_uri);
     httpd_register_uri_handler(camera_httpd, &status_uri);
+    httpd_register_uri_handler(camera_httpd, &savemode_uri);
+    httpd_register_uri_handler(camera_httpd, &capturesd_uri);
   }
 
   // ---- Dedicated stream server on port 81 ----
