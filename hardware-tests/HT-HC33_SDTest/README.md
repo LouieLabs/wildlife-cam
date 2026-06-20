@@ -133,7 +133,9 @@ Put the card in the Mac's SD slot or a USB card reader, then:
 4. Click **Erase**.
 5. Set:
    - **Name:** anything (e.g. `WILDCAM`)
-   - **Format:** **MS-DOS (FAT)** for cards up to ~32 GB, or **ExFAT** for larger
+   - **Format:** **MS-DOS (FAT)** (= FAT32). **Do NOT use ExFAT** — this board's
+     FatFs is built with `FF_FS_EXFAT=0`, so exFAT cards won't mount. For cards
+     >32 GB, still use FAT32 (via the CLI below), not ExFAT.
    - **Scheme:** **Master Boot Record**  ← only appears because you selected the
      device, not the volume
 6. **Erase** → done.
@@ -160,64 +162,86 @@ diskutil info /dev/diskNs1 | grep -i "personality"
 # -> File System Personality: MS-DOS FAT32
 ```
 
-## Drop-in fault diagnostic
+## Fault diagnostic (error-code based)
 
-`SD.begin()` only returns a bool, so it can't tell the user *why* it failed.
-This helper distinguishes the two real-world cases without erasing anything:
+`SD.begin()` only returns a bool, so on failure the sketch does a single
+low-level `f_mount` probe and prints the **exact FatFs error code** — which
+pins down the real failure mode:
 
-- **card not detected** (not inserted / bad wiring / dead card) — the card
-  never initializes, so `card->type` stays `CARD_NONE`/`CARD_UNKNOWN`
-- **wrong format** (card present, filesystem unreadable) — the card initializes
-  fine, so `card->type` is `CARD_SD`/`CARD_SDHC`/`CARD_MMC`, but `f_mount` fails
-
-Mechanism: `sdcard_init()` only reserves a FATFS slot + sets up CS — it does
-**not** contact the card. The card is first contacted during the mount
-(`f_mount` → `ff_sd_initialize`), which sets `card->type`. So we re-init and
-re-mount at the low level purely to read `card->type` and classify. `card->type`
-remains valid after a failed mount (the wrapper doesn't reset it before we read).
+| `f_mount` | Code | Meaning | What to do |
+|---|---|---|---|
+| `0`  | `FR_OK` | mounted on retry | transient glitch |
+| `3`  | `FR_NOT_READY` | card didn't initialize | not inserted / wiring — **or a WEDGED card**: power-cycle (see below) |
+| `1`  | `FR_DISK_ERR` | card responds, reads fail | marginal card/slot/cable — reseat, clean contacts, shorter/known-good cable |
+| `13` | `FR_NO_FILESYSTEM` | card read OK, no valid FAT | wrong format (GUID/exFAT/no-MBR) **or** a marginal link returning bad data |
 
 ```cpp
-#include <sd_diskio.h>   // sdcard_init / sdcard_mount / sdcard_type / sdcard_uninit
+#include <ff.h>          // FatFs API for FRESULT
+#include <sd_diskio.h>   // sdcard_init / sdcard_uninit
 
-void diagnoseSDFailure() {
-  uint8_t pdrv = sdcard_init(SD_CS, &SD_SPI, 400000);   // slow, robust
-  if (pdrv == 0xFF) { Serial.println("[SD] no free FATFS slot"); return; }
-
-  bool mounted = sdcard_mount(pdrv, "/sddiag", 5, false);   // expected to fail
-  sdcard_type_t type = sdcard_type(pdrv);
-  bool cardInitialized =
-      (type == CARD_SD || type == CARD_SDHC || type == CARD_MMC);
-
-  if (mounted) {
-    sdcard_unmount(pdrv);
-    Serial.println("[SD] mounted on retry (transient glitch)");
-  } else if (!cardInitialized) {
-    Serial.println("[SD] No card detected: not inserted / wiring / dead card.");
-  } else {
-    Serial.println("[SD] Card present but filesystem unreadable -> WRONG FORMAT.");
-    Serial.println("     Reformat FAT32/exFAT with an MBR partition scheme.");
-  }
-  sdcard_uninit(pdrv);   // release the slot we grabbed for the probe
-}
+uint8_t pdrv = sdcard_init(SD_CS, &SD_SPI, 400000);   // slow, robust init
+static FATFS fs; char drv[3] = {(char)('0' + pdrv), ':', 0};
+FRESULT fr = f_mount(&fs, drv, 1);     // 1 = mount immediately
+Serial.printf("f_mount = %d\n", fr);   // classify per the table above
+f_mount(NULL, drv, 0); sdcard_uninit(pdrv);
 ```
 
-Call it only after `SD.begin()` returns false. It re-acquires its own FATFS
-slot (the failed `SD.begin()` already freed its slot and unregistered `/sd`),
-so use a distinct mountpoint like `/sddiag` and always `sdcard_uninit()` after.
+Note: `sdcard_init()` only reserves a FATFS slot + sets up CS — the card isn't
+contacted until the mount. Do a **single** probe; hammering init with repeated
+back-to-back `SD.begin()` attempts can itself wedge a marginal card.
 
-### Why classify on `card->type` and not `CARD_NONE` alone
+## Troubleshooting & lessons learned
 
-`ff_sd_initialize()` jumps to a `unknown_card:` label on *any* SPI comms
-failure, which sets `card->type = CARD_UNKNOWN` (not `CARD_NONE`). So "no card"
-and "bad wiring" both surface as `CARD_UNKNOWN`. Only a card that fully
-initializes gets a concrete `CARD_SD`/`CARD_SDHC`/`CARD_MMC`. Hence the test is
-"did it initialize" (one of the three real types), not "type != NONE".
+A long debugging session ("the SD slot doesn't work") came down to a handful of
+non-obvious things. If a card won't mount, check these **in order**:
 
-## Verified behavior (on real HT-HC33 hardware)
+1. **Power-cycle the card — RST is not enough.** This was the #1 trap. Once a
+   card lands in `FR_NOT_READY` it stays stuck through every reset, reflash, and
+   DTR toggle, because **none of those drop the SD card's 3.3 V**. Only a full
+   **USB unplug/replug** power-cycles the card. Most "still broken" results were
+   just a wedged card re-tested without real power.
+2. **Format is rarely the cause.** We chased "WRONG FORMAT" for ages — red
+   herring. The card's FAT32 was always valid (verified by decoding the boot
+   sector *and* `diskutil verifyVolume` passing on the Mac). `FR_NO_FILESYSTEM`
+   can also come from a *marginal link returning garbage*, not a bad filesystem.
+   Confirm the format independently before reformatting.
+3. **Power source matters.** Through a **USB hub** the link is marginal — 4 MHz
+   reads occasionally fail and the sketch falls back to 1 MHz. **Direct to the
+   computer** was rock-solid at 4 MHz every time. A flaky/charge-only cable or
+   hub also makes the serial port repeatedly drop and re-enumerate — treat that
+   as a power/cable warning sign.
+4. **"Reads in the Mac" ≠ "reads on the board."** A card that the Mac reads
+   perfectly can still be flaky over SPI, because the Mac uses a robust SDIO
+   reader, not this board's SPI link. (In the end, with proper power cycling,
+   every card and both boards worked.)
+5. **Don't re-mount in `loop()`.** Repeated `SD.begin()` can wedge a marginal
+   card. Mount **once** in `setup()`; re-run only the file I/O in `loop()`.
 
-- Correct pins + FAT32/MBR card → `Mounted OK. Type SDHC, size 15360 MB`;
-  write / read / append / re-read all succeed.
-- Card present, filesystem unreadable → diagnostic prints **WRONG FORMAT**.
-- Card unreachable (broken command line) → diagnostic prints **No card detected**.
+### Ruled out (so you don't re-chase them)
+
+- ❌ **Format** (GUID / exFAT / FAT32-without-MBR) — valid FAT32 confirmed on
+  both the board's decode and the Mac's `fsck`.
+- ❌ **SPI speed** — fails identically at 4 MHz, 1 MHz, and 400 kHz when wedged.
+- ❌ **Repeated `SD.begin()` in loop alone** (arduino-esp32 #7565) — it failed
+  even mounting once in `setup()`.
+- ❌ **A permanently bad board/slot** — board 1 looked dead, but works fine
+  direct + power-cycled; its failures were the hub + a wedged card.
+
+### Confirmed-working recipe
+
+- Either board, a FAT32 + MBR card (16–32 GB; avoid 128 GB SDXC over SPI).
+- **Insert the card with the board unplugged → plug in (clean power) → mounts at
+  4 MHz**, full read/write.
+- Prefer **direct USB**; a hub works but leans on the 1 MHz fallback.
+- To recover anything stuck: **unplug/replug, not RST.**
+
+## Verified on real HT-HC33 hardware
+
+- Board 1 **and** board 2, two different 16 GB cards, direct USB, clean power
+  cycle → `Mounted OK at 4000000 Hz`; write/read/append/re-read all pass, stable
+  every 5 s.
+- Via hub → mounts, occasionally through the 1 MHz fallback.
+- Injected faults reproduce each diagnostic: broken MOSI → `FR_NOT_READY` /
+  no-card; GUID / foreign filesystem → `FR_NO_FILESYSTEM` / wrong-format.
 
 See `HT-HC33_SDTest.ino` in this folder for the full working sketch.
