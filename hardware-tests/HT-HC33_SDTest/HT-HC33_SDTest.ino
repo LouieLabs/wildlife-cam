@@ -120,7 +120,12 @@ void diagnoseSDFailure() {
     Serial.println("        ESP32 cannot read. Reformat using MacOS Disk Utility: View >");
     Serial.println("        Show All Devices, select the DEVICE (not the volume), Erase >");
     Serial.println("        MS-DOS (FAT), Scheme = Master Boot Record. DO NOT select");
-    Serial.println("        \"MS-DOS (FAT32)\" because it will not use MBR.");
+    Serial.println("        \"MS-DOS (FAT32)\" because it will not use MBR. If the Master");
+    Serial.println("        Boot Record option is not displayed, the View (to the right of");
+    Serial.println("        the green Maximize button) may not be on \"Show All Devices\".");
+    Serial.println("        You can check that MBR is listed as the Partition Map in the");
+    Serial.println("        Physical Disk table (it's not listed in the Physical Volume");
+    Serial.println("        table).");
     Serial.println("");
     Serial.println("*** BEFORE REMOVING THE SDCARD");
     Serial.println("*** UNPLUG THE BOARD from the computer to avoid damaging the card ***");
