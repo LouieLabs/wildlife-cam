@@ -150,13 +150,14 @@ bool initSDCard() {
 
 void setup() {
   Serial.begin(115200);
-  delay(1500);                 // let USB CDC enumerate
+  delay(1500);                 // let the UART settle after reset
   Serial.println("\n=== HT-HC33 SD card test ===");
 
   SD_SPI.begin(SD_SCK, SD_MISO, SD_MOSI, SD_CS);
 
   if (!initSDCard()) {
     Serial.println("=== Aborted: SD not usable (see reason above) ===");
+    Serial.println(">>> Fix the card, then press the RST button to run again. <<<");
     return;
   }
 
@@ -167,16 +168,14 @@ void setup() {
   readFile(SD, TEST_PATH);
 
   Serial.println("\n=== Test complete ===");
+  Serial.println(">>> Press the RST button to run the test again. <<<");
 }
 
 void loop() {
-  // The test runs once in setup(), which prints in the ~1.5 s right after a
-  // reset -- before the serial monitor reattaches after a flash. This heartbeat
-  // gives the monitor something to show whenever you open it (no reset needed);
-  // press the board's RST button to re-run the SD test itself.
-  static uint32_t last = 0;
-  if (millis() - last > 2000) {
-    last = millis();
-    Serial.println("[alive] open the monitor anytime; press RST to re-run the SD test");
-  }
+  // Nothing here on purpose -- no repeating output. The test runs once in
+  // setup() and ends with a "press RST to run again" hint. Opening the serial
+  // monitor toggles the board's reset line (DTR/RTS -> EN), so it usually
+  // re-runs setup() and you'll see the full result; if not, tap RST.
+  // (The sketch can't detect the monitor opening: serial is the external CP2102
+  // UART, not native USB, so there is no host-connected signal to test.)
 }

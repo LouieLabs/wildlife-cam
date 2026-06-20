@@ -44,12 +44,23 @@ Global variables use 14340 bytes (4%) of dynamic memory, leaving 313340 bytes fo
 ### Serial monitor shows nothing until you reset
 
 After a flash, the board resets and runs `setup()` immediately — its output
-prints in the first ~1.5 s, before the serial monitor reattaches. If your sketch
-only prints in `setup()`, the monitor opens onto an already-finished program and
-looks dead until you press **RST** (which re-runs `setup()`). Fixes: print a
-periodic heartbeat in `loop()` (as this sketch does), or re-run the test from
-`loop()` instead of `setup()`. This is normal for the external-UART path, not a
-fault.
+prints in the first ~1.5 s, before the serial monitor reattaches. So the monitor
+opens onto an already-finished program and looks dead until the board resets
+again.
+
+This sketch handles that by running the test once in `setup()` and ending with a
+`>>> Press the RST button to run the test again. <<<` line. Whenever the board
+resets you get the full result, then silence — no repeating output. Opening the
+serial monitor toggles the reset line (DTR/RTS → EN), so it usually re-runs
+`setup()` on its own; if your monitor doesn't, just tap **RST**.
+
+**Why not auto-detect that the monitor opened?** You can't on this board. That
+trick (`while(!Serial)`) needs the ESP32-S3's *native* USB, but serial here goes
+through the external **CP2102** UART, which exposes no "host connected" signal.
+Native USB isn't available either — its D+/D- pins (GPIO19/20) are used for the
+RGB LED and the camera power-down. So the firmware has no way to know the monitor
+was opened; a periodic re-run or the RST-driven re-run above are the only
+options.
 
 ## Library gotcha (important)
 
