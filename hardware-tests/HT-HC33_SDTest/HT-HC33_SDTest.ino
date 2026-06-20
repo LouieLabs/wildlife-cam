@@ -114,12 +114,16 @@ void diagnoseSDFailure() {
     Serial.println("     -> Try reseating, or another card (card/slot may be faulty).");
   } else {
     Serial.println("[SD] Card responds but the filesystem could NOT be read -> WRONG FORMAT.");
-    Serial.println("     -> The ESP32 needs FAT32 (or exFAT) on an MBR (Master Boot");
+    Serial.println("     -> The ESP32 needs FAT32 on an MBR (Master Boot");
     Serial.println("        Record) partition table.");
     Serial.println("     -> macOS Disk Utility defaults to GUID Partition Map, which the");
     Serial.println("        ESP32 cannot read. Reformat using MacOS Disk Utility: View >");
     Serial.println("        Show All Devices, select the DEVICE (not the volume), Erase >");
-    Serial.println("        MS-DOS (FAT), Scheme = Master Boot Record.");
+    Serial.println("        MS-DOS (FAT), Scheme = Master Boot Record. DO NOT select");
+    Serial.println("        \"MS-DOS (FAT32)\" because it will not use MBR.");
+    Serial.println("");
+    Serial.println("*** BEFORE REMOVING THE SDCARD");
+    Serial.println("*** UNPLUG THE BOARD from the computer to avoid damaging the card ***");
   }
 
   sdcard_uninit(pdrv);
