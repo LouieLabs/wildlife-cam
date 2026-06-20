@@ -41,26 +41,20 @@ Sketch uses 326585 bytes (8%) of program storage space. Maximum is 3670016 bytes
 Global variables use 14340 bytes (4%) of dynamic memory, leaving 313340 bytes for local variables. Maximum is 327680 bytes.
 ```
 
-### Serial monitor shows nothing until you reset
+### Serial monitor and the 5-second re-run
 
-After a flash, the board resets and runs `setup()` immediately — its output
-prints in the first ~1.5 s, before the serial monitor reattaches. So the monitor
-opens onto an already-finished program and looks dead until the board resets
-again.
+After a flash, the board resets and runs immediately — the first pass prints in
+the ~1.5 s before the serial monitor reattaches, so you'd miss it. To avoid that,
+this sketch **re-runs the whole test every 5 seconds** from `loop()`: open the
+monitor at any time and you get a fresh, full result within 5 s — no reset
+needed, and no filler "heartbeat" line.
 
-This sketch handles that by running the test once in `setup()` and ending with a
-`>>> Press the RST button to run the test again. <<<` line. Whenever the board
-resets you get the full result, then silence — no repeating output. Opening the
-serial monitor toggles the reset line (DTR/RTS → EN), so it usually re-runs
-`setup()` on its own; if your monitor doesn't, just tap **RST**.
-
-**Why not auto-detect that the monitor opened?** You can't on this board. That
-trick (`while(!Serial)`) needs the ESP32-S3's *native* USB, but serial here goes
-through the external **CP2102** UART, which exposes no "host connected" signal.
-Native USB isn't available either — its D+/D- pins (GPIO19/20) are used for the
-RGB LED and the camera power-down. So the firmware has no way to know the monitor
-was opened; a periodic re-run or the RST-driven re-run above are the only
-options.
+**Why not just auto-detect that the monitor opened?** You can't on this board.
+That trick (`while(!Serial)`) needs the ESP32-S3's *native* USB, but serial here
+goes through the external **CP2102** UART, which exposes no "host connected"
+signal. Native USB isn't available either — its D+/D- pins (GPIO19/20) are used
+for the RGB LED and the camera power-down. So the firmware has no way to know the
+monitor was opened; the periodic re-run is the clean alternative.
 
 ## Library gotcha (important)
 

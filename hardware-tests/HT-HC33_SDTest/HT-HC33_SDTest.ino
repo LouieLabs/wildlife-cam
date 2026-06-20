@@ -117,11 +117,9 @@ void diagnoseSDFailure() {
     Serial.println("     -> The ESP32 needs FAT32 (or exFAT) on an MBR (Master Boot");
     Serial.println("        Record) partition table.");
     Serial.println("     -> macOS Disk Utility defaults to GUID Partition Map, which the");
-    Serial.println("        ESP32 cannot read. Reformat: View > Show All Devices, select");
-    Serial.println("        the DEVICE (not the volume), Erase > MS-DOS (FAT), Scheme =");
-    Serial.println("        Master Boot Record. (FAT32 needs <=32 GB; larger -> exFAT.)");
-    Serial.println("     -> Or let the board reformat it (ERASES card) by calling:");
-    Serial.println("        SD.begin(SD_CS, SD_SPI, 4000000, \"/sd\", 5, true)");
+    Serial.println("        ESP32 cannot read. Reformat using MacOS Disk Utility: View >");
+    Serial.println("        Show All Devices, select the DEVICE (not the volume), Erase >");
+    Serial.println("        MS-DOS (FAT), Scheme = Master Boot Record.");
   }
 
   sdcard_uninit(pdrv);
@@ -148,17 +146,12 @@ bool initSDCard() {
 
 // ---- setup / loop --------------------------------------------------------
 
-void setup() {
-  Serial.begin(115200);
-  delay(1500);                 // let the UART settle after reset
+// One full pass of the test: mount (or diagnose), then read/write/append.
+void runSDTest() {
   Serial.println("\n=== HT-HC33 SD card test ===");
 
-  SD_SPI.begin(SD_SCK, SD_MISO, SD_MOSI, SD_CS);
-
   if (!initSDCard()) {
-    Serial.println("=== Aborted: SD not usable (see reason above) ===");
-    Serial.println(">>> Fix the card, then press the RST button to run again. <<<");
-    return;
+    return;   // initSDCard() already printed the specific reason
   }
 
   // Exercise the filesystem.
@@ -167,15 +160,16 @@ void setup() {
   appendFile(SD, TEST_PATH, "Appended line OK.\n");
   readFile(SD, TEST_PATH);
 
-  Serial.println("\n=== Test complete ===");
-  Serial.println(">>> Press the RST button to run the test again. <<<");
+  Serial.println("=== Test complete ===");
+}
+
+void setup() {
+  Serial.begin(115200);
+  delay(1500);                 // let the UART settle after reset
+  SD_SPI.begin(SD_SCK, SD_MISO, SD_MOSI, SD_CS);
 }
 
 void loop() {
-  // Nothing here on purpose -- no repeating output. The test runs once in
-  // setup() and ends with a "press RST to run again" hint. Opening the serial
-  // monitor toggles the board's reset line (DTR/RTS -> EN), so it usually
-  // re-runs setup() and you'll see the full result; if not, tap RST.
-  // (The sketch can't detect the monitor opening: serial is the external CP2102
-  // UART, not native USB, so there is no host-connected signal to test.)
+  runSDTest();
+  delay(5000);                 // re-run the test every 5 seconds
 }
