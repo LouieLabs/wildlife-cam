@@ -41,6 +41,7 @@
 #include <SPI.h>
 #include <halow_SD.h>     // HaLow core's SD library (provides fs::SDFS SD)
 #include <sd_diskio.h>    // low-level sdcard_init/type/num_sectors for diagnostics
+#include <ff.h>           // FatFs API -- to read the exact f_mount FRESULT
 
 // --- HT-HC33 SD pins (SPI mode, HSPI bus) ---
 static const int SD_SCK  = 15;
@@ -85,14 +86,18 @@ void readFile(fs::FS &fs, const char *path) {
 
 // Print the specific reason a mount failed, without erasing anything.
 //
-// sdcard_init() only reserves a FATFS slot + sets up the CS pin -- the card is
-// not actually contacted until the mount (f_mount -> ff_sd_initialize), which
-// sets card->type. So we re-init and re-mount at the low level purely to read
-// card->type, then classify by whether the card hardware initialized:
-//   type is SD / SDHC / MMC  -> card answered but FS bad -> WRONG FORMAT
-//   type is NONE / UNKNOWN   -> card never initialized   -> not inserted /
-//                               bad wiring / dead card (init jumps to
-//                               "unknown_card" -> CARD_UNKNOWN on any comms fail)
+// Diagnose why the mount failed using the EXACT FatFs error code. We do a
+// single low-level f_mount probe (extra init attempts can wedge a marginal
+// card) and classify on its FRESULT:
+//   FR_OK (0)             -> mounted on retry (transient glitch)
+//   FR_NOT_READY (3)      -> card did not initialize: not inserted, bad wiring/
+//                            slot, OR a WEDGED card. After a failed access the
+//                            card can stay stuck until a real power cycle --
+//                            an RST/reflash does NOT drop the SD card's VDD.
+//   FR_DISK_ERR (1)       -> card responds but reads fail -> marginal card/slot
+//   FR_NO_FILESYSTEM (13) -> card read OK but no valid FAT -> wrong format
+//                            (GUID/exFAT/no-MBR), or a marginal link returning
+//                            bad data
 void diagnoseSDFailure() {
   uint8_t pdrv = sdcard_init(SD_CS, &SD_SPI, 400000);   // slow, robust init
   if (pdrv == 0xFF) {
@@ -100,20 +105,27 @@ void diagnoseSDFailure() {
     return;
   }
 
-  bool mounted = sdcard_mount(pdrv, "/sddiag", 5, false);   // expected to fail
-  sdcard_type_t type = sdcard_type(pdrv);                   // valid even on failure
-  bool cardInitialized = (type == CARD_SD || type == CARD_SDHC || type == CARD_MMC);
+  static FATFS s_diagfs;
+  char drv[3] = {(char)('0' + pdrv), ':', 0};
+  FRESULT fr = f_mount(&s_diagfs, drv, 1);   // 1 = mount immediately
+  Serial.printf("[SD] f_mount result = %d  (0=OK 1=DISK_ERR 3=NOT_READY 13=NO_FILESYSTEM)\n",
+                (int)fr);
 
-  if (mounted) {
-    sdcard_unmount(pdrv);
+  if (fr == FR_OK) {
     Serial.println("[SD] Mounted on retry -- previous failure was a transient glitch.");
-  } else if (!cardInitialized) {
-    Serial.println("[SD] No card detected -- the card did not respond.");
+  } else if (fr == FR_NOT_READY) {
+    Serial.println("[SD] Card did NOT initialize.");
     Serial.println("     -> Is a microSD fully inserted (push-push click)?");
     Serial.println("     -> Wiring: CLK=15, MISO=16, MOSI=11, CS=10 on HSPI.");
-    Serial.println("     -> Try reseating, or another card (card/slot may be faulty).");
-  } else {
-    Serial.println("[SD] Card responds but the filesystem could NOT be read -> WRONG FORMAT.");
+    Serial.println("     -> If it worked before, the card may be WEDGED: fully UNPLUG");
+    Serial.println("        the board for ~5s (RST/reflash does NOT power-cycle the");
+    Serial.println("        card), then retry. Otherwise reseat or try another card.");
+  } else if (fr == FR_DISK_ERR) {
+    Serial.println("[SD] Card responds but reads FAIL (disk error) -> marginal card or");
+    Serial.println("     slot/wiring, NOT a format problem. Reseat, clean the contacts,");
+    Serial.println("     try a shorter/known-good cable, or another card.");
+  } else {   // FR_NO_FILESYSTEM and anything else
+    Serial.println("[SD] Card read OK but no valid filesystem -> WRONG FORMAT.");
     Serial.println("     -> The ESP32 needs FAT32 on an MBR (Master Boot");
     Serial.println("        Record) partition table.");
     Serial.println("     -> macOS Disk Utility defaults to GUID Partition Map, which the");
@@ -131,22 +143,33 @@ void diagnoseSDFailure() {
     Serial.println("*** UNPLUG THE BOARD from the computer to avoid damaging the card ***");
   }
 
+  f_mount(NULL, drv, 0);     // release the probe mount
   sdcard_uninit(pdrv);
 }
 
 // Returns true once the filesystem is mounted. On failure, prints a specific
 // reason (no card vs. wrong format) and returns false. Never auto-erases.
+//
+// Tries progressively slower SPI clocks: a card can initialize (init runs at
+// 400 kHz) yet fail sector reads at a high clock if the wiring/connection is
+// marginal. If a slower clock mounts, the filesystem was fine all along -- the
+// problem was signal integrity, not the format.
 bool initSDCard() {
-  if (SD.begin(SD_CS, SD_SPI)) {           // format_if_empty defaults to false
-    uint8_t t = SD.cardType();
-    const char *typeStr = (t == CARD_MMC)  ? "MMC"  :
-                          (t == CARD_SD)   ? "SDSC" :
-                          (t == CARD_SDHC) ? "SDHC" : "UNKNOWN";
-    Serial.printf("[SD] Mounted OK. Type %s, size %llu MB, used %llu / %llu MB\n",
-                  typeStr, SD.cardSize()  / (1024ULL * 1024ULL),
-                  SD.usedBytes()  / (1024ULL * 1024ULL),
-                  SD.totalBytes() / (1024ULL * 1024ULL));
-    return true;
+  const uint32_t kSpeeds[] = {4000000, 1000000, 400000};
+  for (uint8_t i = 0; i < sizeof(kSpeeds) / sizeof(kSpeeds[0]); i++) {
+    if (SD.begin(SD_CS, SD_SPI, kSpeeds[i])) {   // format_if_empty defaults to false
+      uint8_t t = SD.cardType();
+      const char *typeStr = (t == CARD_MMC)  ? "MMC"  :
+                            (t == CARD_SD)   ? "SDSC" :
+                            (t == CARD_SDHC) ? "SDHC" : "UNKNOWN";
+      Serial.printf("[SD] Mounted OK at %lu Hz. Type %s, size %llu MB, used %llu / %llu MB\n",
+                    (unsigned long)kSpeeds[i], typeStr,
+                    SD.cardSize()  / (1024ULL * 1024ULL),
+                    SD.usedBytes()  / (1024ULL * 1024ULL),
+                    SD.totalBytes() / (1024ULL * 1024ULL));
+      if (i > 0) Serial.println("     (needed a slower clock -> check wiring/cable/card)");
+      return true;
+    }
   }
 
   diagnoseSDFailure();
@@ -155,30 +178,37 @@ bool initSDCard() {
 
 // ---- setup / loop --------------------------------------------------------
 
-// One full pass of the test: mount (or diagnose), then read/write/append.
-void runSDTest() {
+bool g_mounted = false;        // set once in setup()
+
+// The read/write portion of the test -- run repeatedly; reuses the mount.
+void runFileTest() {
   Serial.println("\n=== HT-HC33 SD card test ===");
-
-  if (!initSDCard()) {
-    return;   // initSDCard() already printed the specific reason
-  }
-
-  // Exercise the filesystem.
   writeFile(SD, TEST_PATH, "Hello from HT-HC33!\n");
   readFile(SD, TEST_PATH);
   appendFile(SD, TEST_PATH, "Appended line OK.\n");
   readFile(SD, TEST_PATH);
-
   Serial.println("=== Test complete ===");
 }
 
 void setup() {
   Serial.begin(115200);
   delay(1500);                 // let the UART settle after reset
+  Serial.println("\n=== HT-HC33 SD card test ===");
+
+  // Bring up SPI and mount the card EXACTLY ONCE, here. Re-mounting from
+  // loop() is unreliable on ESP32-S3 HSPI (arduino-esp32 #7565): the card can
+  // init but fail reads, which looks like a bad filesystem. So mount once and
+  // reuse the handle.
   SD_SPI.begin(SD_SCK, SD_MISO, SD_MOSI, SD_CS);
+  g_mounted = initSDCard();
 }
 
 void loop() {
-  runSDTest();
-  delay(5000);                 // re-run the test every 5 seconds
+  if (g_mounted) {
+    runFileTest();             // re-run the read/write test (no re-mount)
+  } else {
+    Serial.println("[SD] Not mounted -- see the reason above. Fix the card, then");
+    Serial.println("     power-cycle the board (unplug/replug) to retry.");
+  }
+  delay(5000);
 }
