@@ -21,8 +21,21 @@
  *        scheme instead of MBR, or a non-FAT filesystem)
  *   3. Write / read / append / re-read a test file.
  *
- * Arduino IDE settings: Board "HT-HC33", USB CDC On Boot: Enabled,
- * PSRAM: OPI PSRAM, Flash Size: 16MB. Uses the core's bundled SD + SPI libs.
+ * Arduino IDE settings: Board "HT-HC33" (or "HT-HC33(V2)" -- same pins),
+ * USB CDC On Boot: DISABLED (default), PSRAM: OPI PSRAM, Flash Size: 16MB.
+ * Uses the core's bundled SD + SPI libs.
+ *
+ * Serial goes through the board's external CP2102 USB-UART bridge (it shows up
+ * as /dev/cu.usbserial-* / "Silicon Labs CP210x"), so leave USB CDC On Boot
+ * DISABLED -- enabling it redirects Serial to the native USB peripheral, which
+ * is not wired to the USB-C port here, and the serial monitor would go dead.
+ *
+ * Compiles clean on Arduino IDE 2.3.x. These three warnings are EXPECTED and
+ * harmless -- the bundled libs are tagged "esp32" while the core's arch is
+ * "esp_halow"; it's just a metadata mismatch, operation is unaffected:
+ *   WARNING: library SPI claims to run on esp32 architecture(s) ...
+ *   WARNING: library SD  claims to run on esp32 architecture(s) ...
+ *   WARNING: library FS  claims to run on esp32 architecture(s) ...
  */
 
 #include <SPI.h>
@@ -157,5 +170,13 @@ void setup() {
 }
 
 void loop() {
-  // test runs once in setup()
+  // The test runs once in setup(), which prints in the ~1.5 s right after a
+  // reset -- before the serial monitor reattaches after a flash. This heartbeat
+  // gives the monitor something to show whenever you open it (no reset needed);
+  // press the board's RST button to re-run the SD test itself.
+  static uint32_t last = 0;
+  if (millis() - last > 2000) {
+    last = millis();
+    Serial.println("[alive] open the monitor anytime; press RST to re-run the SD test");
+  }
 }

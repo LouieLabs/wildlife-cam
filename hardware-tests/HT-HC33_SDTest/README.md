@@ -10,8 +10,14 @@ diagnostic. All of this is verified working on real hardware.
   core. Install via Boards Manager ("ESP32 halow") or it's already installed.
 - **FQBN:** `heltec:esp_halow:HT-HC33`
   (there is also a `HT-HC33-V2` variant if the board is the V2 revision).
-- **Arduino IDE settings:** Board "HT-HC33", *USB CDC On Boot: Enabled*
-  (required for `Serial` over USB-C), PSRAM: OPI PSRAM, Flash Size: 16MB.
+- **Arduino IDE settings:** Board "HT-HC33" (or "HT-HC33(V2)" — same variant
+  and pins), *USB CDC On Boot:* **Disabled** (the default), PSRAM: OPI PSRAM,
+  Flash Size: 16MB.
+  - Leave **USB CDC On Boot DISABLED.** Serial on this board goes through the
+    external **CP2102** USB-UART bridge (it enumerates as `/dev/cu.usbserial-*`
+    / "Silicon Labs CP210x"). Enabling USB CDC redirects `Serial` to the
+    ESP32-S3's *native* USB, which is not wired to the USB-C port here — the
+    serial monitor would go dead.
 - arduino-cli build/flash:
   ```
   arduino-cli compile --fqbn heltec:esp_halow:HT-HC33 .
@@ -19,6 +25,31 @@ diagnostic. All of this is verified working on real hardware.
   ```
   (CP2102 USB-serial; nothing holds the port — close any open Serial Monitor
   first or the upload fails with "port doesn't exist".)
+
+### Expected compile warnings (harmless)
+
+On Arduino IDE 2.3.x (e.g. 2.3.10) the sketch compiles clean but prints three
+warnings. They're a metadata mismatch only — the bundled libraries are tagged
+for the `esp32` architecture while this core's arch is `esp_halow`. **Operation
+is unaffected:**
+
+```
+WARNING: library SPI claims to run on esp32 architecture(s) and may be incompatible with your current board which runs on esp_halow architecture(s).
+WARNING: library SD claims to run on esp32 architecture(s) and may be incompatible with your current board which runs on esp_halow architecture(s).
+WARNING: library FS claims to run on esp32 architecture(s) and may be incompatible with your current board which runs on esp_halow architecture(s).
+Sketch uses 326585 bytes (8%) of program storage space. Maximum is 3670016 bytes.
+Global variables use 14340 bytes (4%) of dynamic memory, leaving 313340 bytes for local variables. Maximum is 327680 bytes.
+```
+
+### Serial monitor shows nothing until you reset
+
+After a flash, the board resets and runs `setup()` immediately — its output
+prints in the first ~1.5 s, before the serial monitor reattaches. If your sketch
+only prints in `setup()`, the monitor opens onto an already-finished program and
+looks dead until you press **RST** (which re-runs `setup()`). Fixes: print a
+periodic heartbeat in `loop()` (as this sketch does), or re-run the test from
+`loop()` instead of `setup()`. This is normal for the external-UART path, not a
+fault.
 
 ## Library gotcha (important)
 
@@ -84,11 +115,45 @@ partition table and a **FAT32 or exFAT** filesystem.
 macOS Disk Utility defaults to **GUID Partition Map**, which mounts fine on the
 Mac but the ESP32 **cannot read** — `SD.begin()` just returns `false`.
 
-Correct way to format on macOS:
-1. Disk Utility → **View ▸ Show All Devices**
-2. Select the **device** (the top-level entry), *not* the volume underneath it
-3. **Erase** → Format **MS-DOS (FAT)** (≤32 GB) or **ExFAT** (larger),
-   **Scheme = Master Boot Record**
+### Format on a Mac with Disk Utility (GUI)
+
+Put the card in the Mac's SD slot or a USB card reader, then:
+
+1. Open **Disk Utility** (Applications → Utilities).
+2. Menu bar: **View → Show All Devices.** This is the critical step — without
+   it you only see the *volume* and the **Scheme** option is hidden.
+3. In the left sidebar, select the **device** — the top-level entry (e.g.
+   "Generic SD/MMC Reader Media" or the card's brand/size), **not** the indented
+   volume beneath it.
+4. Click **Erase**.
+5. Set:
+   - **Name:** anything (e.g. `WILDCAM`)
+   - **Format:** **MS-DOS (FAT)** for cards up to ~32 GB, or **ExFAT** for larger
+   - **Scheme:** **Master Boot Record**  ← only appears because you selected the
+     device, not the volume
+6. **Erase** → done.
+
+If "Scheme" isn't shown, you picked the volume — go up one level to the device.
+
+> **"MS-DOS (FAT)" → FAT32 here.** That menu item is a family label; macOS picks
+> the variant by size (FAT16 below ~2 GB, FAT32 above). A 16 GB card becomes
+> FAT32. The "FAT32 ≤ 32 GB" rule is a *Windows tool* limit, not a FAT32 limit.
+
+### Format from the command line (explicit, scriptable)
+
+```bash
+diskutil list                 # find the card — verify by SIZE + "external, physical"
+diskutil eraseDisk FAT32 WILDCAM MBRFormat /dev/diskN
+```
+`eraseDisk <format> <name> <scheme> <device>` → `FAT32` + `MBRFormat` is exactly
+what the ESP32 needs. **⚠️ Triple-check `diskN`** — `eraseDisk` wipes whatever
+you point it at; never target `disk0` (the internal drive).
+
+Verify the result:
+```bash
+diskutil info /dev/diskNs1 | grep -i "personality"
+# -> File System Personality: MS-DOS FAT32
+```
 
 ## Drop-in fault diagnostic
 
