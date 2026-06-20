@@ -21,8 +21,21 @@
  *        scheme instead of MBR, or a non-FAT filesystem)
  *   3. Write / read / append / re-read a test file.
  *
- * Arduino IDE settings: Board "HT-HC33", USB CDC On Boot: Enabled,
- * PSRAM: OPI PSRAM, Flash Size: 16MB. Uses the core's bundled SD + SPI libs.
+ * Arduino IDE settings: Board "HT-HC33" (or "HT-HC33(V2)" -- same pins),
+ * USB CDC On Boot: DISABLED (default), PSRAM: OPI PSRAM, Flash Size: 16MB.
+ * Uses the core's bundled SD + SPI libs.
+ *
+ * Serial goes through the board's external CP2102 USB-UART bridge (it shows up
+ * as /dev/cu.usbserial-* / "Silicon Labs CP210x"), so leave USB CDC On Boot
+ * DISABLED -- enabling it redirects Serial to the native USB peripheral, which
+ * is not wired to the USB-C port here, and the serial monitor would go dead.
+ *
+ * Compiles clean on Arduino IDE 2.3.x. These three warnings are EXPECTED and
+ * harmless -- the bundled libs are tagged "esp32" while the core's arch is
+ * "esp_halow"; it's just a metadata mismatch, operation is unaffected:
+ *   WARNING: library SPI claims to run on esp32 architecture(s) ...
+ *   WARNING: library SD  claims to run on esp32 architecture(s) ...
+ *   WARNING: library FS  claims to run on esp32 architecture(s) ...
  */
 
 #include <SPI.h>
@@ -101,14 +114,21 @@ void diagnoseSDFailure() {
     Serial.println("     -> Try reseating, or another card (card/slot may be faulty).");
   } else {
     Serial.println("[SD] Card responds but the filesystem could NOT be read -> WRONG FORMAT.");
-    Serial.println("     -> The ESP32 needs FAT32 (or exFAT) on an MBR (Master Boot");
+    Serial.println("     -> The ESP32 needs FAT32 on an MBR (Master Boot");
     Serial.println("        Record) partition table.");
     Serial.println("     -> macOS Disk Utility defaults to GUID Partition Map, which the");
-    Serial.println("        ESP32 cannot read. Reformat: View > Show All Devices, select");
-    Serial.println("        the DEVICE (not the volume), Erase > MS-DOS (FAT), Scheme =");
-    Serial.println("        Master Boot Record. (FAT32 needs <=32 GB; larger -> exFAT.)");
-    Serial.println("     -> Or let the board reformat it (ERASES card) by calling:");
-    Serial.println("        SD.begin(SD_CS, SD_SPI, 4000000, \"/sd\", 5, true)");
+    Serial.println("        ESP32 cannot read. Reformat using MacOS Disk Utility: View >");
+    Serial.println("        Show All Devices, select the DEVICE (not the volume), Erase >");
+    Serial.println("        MS-DOS (FAT), Scheme = Master Boot Record. DO NOT select");
+    Serial.println("        \"MS-DOS (FAT32)\" because it will not use MBR. If the Master");
+    Serial.println("        Boot Record option is not displayed, the View (to the right of");
+    Serial.println("        the green Maximize button) may not be on \"Show All Devices\".");
+    Serial.println("        You can check that MBR is listed as the Partition Map in the");
+    Serial.println("        Physical Disk table (it's not listed in the Physical Volume");
+    Serial.println("        table).");
+    Serial.println("");
+    Serial.println("*** BEFORE REMOVING THE SDCARD");
+    Serial.println("*** UNPLUG THE BOARD from the computer to avoid damaging the card ***");
   }
 
   sdcard_uninit(pdrv);
@@ -135,16 +155,12 @@ bool initSDCard() {
 
 // ---- setup / loop --------------------------------------------------------
 
-void setup() {
-  Serial.begin(115200);
-  delay(1500);                 // let USB CDC enumerate
+// One full pass of the test: mount (or diagnose), then read/write/append.
+void runSDTest() {
   Serial.println("\n=== HT-HC33 SD card test ===");
 
-  SD_SPI.begin(SD_SCK, SD_MISO, SD_MOSI, SD_CS);
-
   if (!initSDCard()) {
-    Serial.println("=== Aborted: SD not usable (see reason above) ===");
-    return;
+    return;   // initSDCard() already printed the specific reason
   }
 
   // Exercise the filesystem.
@@ -153,9 +169,16 @@ void setup() {
   appendFile(SD, TEST_PATH, "Appended line OK.\n");
   readFile(SD, TEST_PATH);
 
-  Serial.println("\n=== Test complete ===");
+  Serial.println("=== Test complete ===");
+}
+
+void setup() {
+  Serial.begin(115200);
+  delay(1500);                 // let the UART settle after reset
+  SD_SPI.begin(SD_SCK, SD_MISO, SD_MOSI, SD_CS);
 }
 
 void loop() {
-  // test runs once in setup()
+  runSDTest();
+  delay(5000);                 // re-run the test every 5 seconds
 }
