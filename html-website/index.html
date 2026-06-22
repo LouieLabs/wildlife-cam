@@ -1,0 +1,2086 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WildWatch — Camera Library</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #F5F2EE;
+    --surface: #FDFAF7;
+    --green: #2C4A35;
+    --green-light: #3A6349;
+    --green-faint: #EAF0EC;
+    --amber: #C4883A;
+    --amber-faint: #FDF3E3;
+    --text: #1A1A18;
+    --text-2: #6B6560;
+    --border: #E0DBD5;
+    --shadow: 0 2px 8px rgba(0,0,0,0.07);
+    --radius: 10px;
+  }
+
+  body {
+    font-family: 'Inter', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+
+  /* ── NAV ── */
+  nav {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; z-index: 100;
+    padding: 0 32px;
+    display: flex; align-items: center; gap: 0;
+    height: 60px;
+  }
+  .nav-brand {
+    display: flex; align-items: center; gap: 10px;
+    margin-right: 40px; text-decoration: none;
+  }
+  .nav-brand-icon {
+    width: 32px; height: 32px;
+    background: var(--green);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .nav-brand-icon svg { width: 18px; height: 18px; }
+  .nav-brand-name {
+    font-family: 'DM Serif Display', serif;
+    font-size: 18px; color: var(--text);
+    letter-spacing: -0.01em;
+  }
+  .nav-links { display: flex; align-items: center; gap: 2px; flex: 1; }
+  .nav-link {
+    padding: 6px 14px;
+    font-size: 14px; font-weight: 500;
+    color: var(--text-2);
+    text-decoration: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s;
+    border: none; background: none;
+  }
+  .nav-link:hover { background: var(--bg); color: var(--text); }
+  .nav-link.active { color: var(--green); background: var(--green-faint); }
+  .nav-right { display: flex; align-items: center; gap: 12px; }
+  .btn-upload {
+    background: var(--green);
+    color: white;
+    border: none;
+    padding: 8px 18px;
+    border-radius: 7px;
+    font-size: 13px; font-weight: 500;
+    cursor: pointer;
+    display: flex; align-items: center; gap: 7px;
+    transition: background 0.15s;
+  }
+  .btn-upload:hover { background: var(--green-light); }
+  .avatar {
+    width: 32px; height: 32px; border-radius: 50%;
+    background: var(--amber);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 600; color: white;
+    cursor: pointer;
+  }
+
+  /* ── PAGES ── */
+  .page { display: none; }
+  .page.active { display: block; }
+
+  /* ── LIBRARY PAGE ── */
+  .library-header {
+    padding: 28px 32px 20px;
+    display: flex; align-items: flex-end; justify-content: space-between;
+  }
+  .library-title { font-family: 'DM Serif Display', serif; font-size: 26px; color: var(--text); }
+  .photo-count { font-size: 13px; color: var(--text-2); margin-top: 3px; }
+
+  /* Search + Filters */
+  .filter-bar {
+    padding: 0 32px 20px;
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .search-row { display: flex; gap: 10px; align-items: center; }
+  .search-wrap {
+    flex: 1; position: relative;
+    max-width: 420px;
+  }
+  .search-wrap svg {
+    position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+    color: var(--text-2); width: 16px; height: 16px;
+  }
+  .search-input {
+    width: 100%; padding: 9px 12px 9px 38px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    font-size: 14px; font-family: 'Inter', sans-serif;
+    background: var(--surface);
+    color: var(--text);
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .search-input:focus { border-color: var(--green); }
+  .search-input::placeholder { color: var(--text-2); }
+
+  .filter-chips-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .filter-chip {
+    display: flex; align-items: center; gap: 6px;
+    padding: 5px 12px;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    font-size: 12px; font-weight: 500; color: var(--text-2);
+    background: var(--surface);
+    cursor: pointer; transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .filter-chip:hover { border-color: var(--green); color: var(--green); }
+  .filter-chip.active { border-color: var(--green); color: var(--green); background: var(--green-faint); }
+  .filter-chip .chip-x {
+    font-size: 14px; line-height: 1;
+    color: var(--green);
+    margin-left: 2px;
+  }
+  .active-filter-tag {
+    display: flex; align-items: center; gap: 5px;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 12px; font-weight: 500;
+    background: var(--green);
+    color: white;
+    cursor: pointer;
+  }
+  .active-filter-tag span { font-size: 14px; opacity: 0.8; }
+  .clear-all-btn {
+    font-size: 12px; color: var(--text-2);
+    background: none; border: none;
+    cursor: pointer; text-decoration: underline;
+    margin-left: 4px;
+  }
+
+  /* Filter Dropdown Panel */
+  .filter-panel-wrap { position: relative; }
+  .filter-panel {
+    display: none;
+    position: absolute; top: calc(100% + 8px); left: 0; z-index: 50;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+    padding: 20px;
+    width: 320px;
+  }
+  .filter-panel.open { display: block; }
+  .filter-panel h4 { font-size: 11px; font-weight: 600; color: var(--text-2); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 10px; }
+  .filter-group { margin-bottom: 18px; }
+  .filter-group:last-child { margin-bottom: 0; }
+  .filter-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+  .ftag {
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    font-size: 12px; cursor: pointer;
+    background: var(--bg); color: var(--text-2);
+    transition: all 0.15s;
+  }
+  .ftag:hover, .ftag.active { background: var(--green-faint); border-color: var(--green); color: var(--green); }
+  .filter-date-row { display: flex; gap: 8px; }
+  .filter-date-row input {
+    flex: 1; padding: 7px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 13px; font-family: 'Inter', sans-serif;
+    background: var(--bg); color: var(--text);
+    outline: none;
+  }
+  .filter-date-row input:focus { border-color: var(--green); }
+  .apply-btn {
+    width: 100%; padding: 9px;
+    background: var(--green); color: white;
+    border: none; border-radius: 7px;
+    font-size: 13px; font-weight: 500;
+    cursor: pointer; margin-top: 14px;
+    transition: background 0.15s;
+  }
+  .apply-btn:hover { background: var(--green-light); }
+
+  /* Sort */
+  .sort-select {
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    font-size: 13px; font-family: 'Inter', sans-serif;
+    background: var(--surface); color: var(--text);
+    outline: none; cursor: pointer;
+  }
+
+  /* Photo Grid */
+  .photo-grid {
+    padding: 0 32px 48px;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+  }
+  @media (max-width: 1400px) { .photo-grid { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 1024px) { .photo-grid { grid-template-columns: repeat(2, 1fr); } }
+
+  .photo-card {
+    position: relative;
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: #20261F;
+    aspect-ratio: 4/3;
+    cursor: pointer;
+    box-shadow: var(--shadow);
+    transition: transform 0.18s, box-shadow 0.18s;
+  }
+  .photo-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.13); }
+  .photo-card img {
+    width: 100%; height: 100%;
+    object-fit: contain;
+    display: block;
+    transition: filter 0.25s;
+  }
+  .photo-card:hover img { filter: brightness(1.06); }
+  .photo-card video { width: 100%; height: 100%; object-fit: contain; display: block; }
+
+  /* Video play badge + fallback poster */
+  .video-badge {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 46px; height: 46px; border-radius: 50%;
+    background: rgba(20,30,22,0.55); backdrop-filter: blur(4px);
+    border: 1.5px solid rgba(255,255,255,0.6);
+    color: #fff; font-size: 15px;
+    display: flex; align-items: center; justify-content: center;
+    padding-left: 3px; pointer-events: none;
+    transition: transform 0.18s;
+  }
+  .photo-card:hover .video-badge { transform: translate(-50%, -50%) scale(1.08); }
+  .video-fallback {
+    width: 100%; height: 100%;
+    background: var(--green);
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  /* Naturalist label — the signature hover element */
+  .photo-label {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    padding: 28px 12px 12px;
+    background: linear-gradient(to top, rgba(20,30,22,0.82) 0%, transparent 100%);
+    transform: translateY(4px);
+    opacity: 0;
+    transition: opacity 0.2s, transform 0.2s;
+    display: flex; flex-direction: column; gap: 3px;
+  }
+  .photo-card:hover .photo-label { opacity: 1; transform: translateY(0); }
+  .label-animal {
+    font-size: 13px; font-weight: 600; color: #fff;
+    display: flex; align-items: center; gap: 5px;
+  }
+  .label-animal .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .label-meta { font-size: 11px; color: rgba(255,255,255,0.72); letter-spacing: 0.01em; }
+
+  /* Top corner tag (always visible) */
+  .photo-tag {
+    position: absolute; top: 10px; left: 10px;
+    background: rgba(20,30,22,0.65);
+    backdrop-filter: blur(4px);
+    padding: 3px 8px; border-radius: 4px;
+    font-size: 10px; font-weight: 500; color: rgba(255,255,255,0.9);
+    letter-spacing: 0.04em; text-transform: uppercase;
+  }
+
+  /* Empty state */
+  .empty-state {
+    padding: 80px 32px;
+    text-align: center;
+    display: none;
+  }
+  .empty-state.visible { display: block; }
+  .empty-icon { font-size: 48px; margin-bottom: 16px; opacity: 0.4; }
+  .empty-state h3 { font-family: 'DM Serif Display', serif; font-size: 22px; color: var(--text); margin-bottom: 8px; }
+  .empty-state p { font-size: 14px; color: var(--text-2); }
+
+  /* ── LIGHTBOX ── */
+  .lightbox {
+    display: none; position: fixed; inset: 0; z-index: 200;
+    background: rgba(15, 20, 16, 0.93);
+    align-items: center; justify-content: center;
+  }
+  .lightbox.open { display: flex; }
+  .lightbox-inner {
+    display: flex; gap: 0;
+    max-width: 1100px; width: calc(100% - 48px);
+    max-height: calc(100vh - 64px);
+    background: var(--surface);
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 24px 80px rgba(0,0,0,0.4);
+  }
+  .lightbox-img-wrap {
+    flex: 1; background: #1A1A18;
+    display: flex; align-items: center; justify-content: center;
+    min-height: 480px; position: relative;
+  }
+  .lightbox-img-wrap img { max-width: 100%; max-height: 70vh; object-fit: contain; }
+  .lightbox-img-wrap video { max-width: 100%; max-height: 70vh; width: auto; background: #000; }
+  .lb-nav {
+    position: absolute; top: 50%; transform: translateY(-50%);
+    background: rgba(255,255,255,0.12); backdrop-filter: blur(4px);
+    border: none; color: white; width: 40px; height: 40px;
+    border-radius: 50%; cursor: pointer; font-size: 18px;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s;
+  }
+  .lb-nav:hover { background: rgba(255,255,255,0.22); }
+  .lb-prev { left: 14px; }
+  .lb-next { right: 14px; }
+  .lightbox-meta {
+    width: 280px; flex-shrink: 0;
+    padding: 28px 24px;
+    display: flex; flex-direction: column; gap: 20px;
+    overflow-y: auto;
+  }
+  .lb-close {
+    align-self: flex-end;
+    background: none; border: none; cursor: pointer;
+    color: var(--text-2); font-size: 22px; line-height: 1;
+    padding: 0;
+  }
+  .lb-close:hover { color: var(--text); }
+  .lb-animal {
+    display: flex; align-items: center; gap: 8px;
+    font-family: 'DM Serif Display', serif; font-size: 22px; color: var(--text);
+  }
+  .lb-animal .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .lb-field { display: flex; flex-direction: column; gap: 3px; }
+  .lb-field label {
+    font-size: 10px; font-weight: 600; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--text-2);
+  }
+  .lb-field span { font-size: 14px; color: var(--text); }
+  .lb-divider { border: none; border-top: 1px solid var(--border); }
+
+  /* ── UPLOAD MODAL ── */
+  .modal-bg {
+    display: none; position: fixed; inset: 0; z-index: 200;
+    background: rgba(15, 20, 16, 0.6);
+    align-items: center; justify-content: center;
+  }
+  .modal-bg.open { display: flex; }
+  .modal {
+    background: var(--surface);
+    border-radius: 14px;
+    width: 520px; max-width: calc(100vw - 48px);
+    padding: 32px;
+    box-shadow: 0 24px 80px rgba(0,0,0,0.25);
+  }
+  .modal h3 { font-family: 'DM Serif Display', serif; font-size: 22px; margin-bottom: 6px; }
+  .modal p { font-size: 13px; color: var(--text-2); margin-bottom: 24px; }
+  .drop-zone {
+    border: 2px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 40px 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.15s;
+    background: var(--bg);
+  }
+  .drop-zone:hover, .drop-zone.dragging { border-color: var(--green); background: var(--green-faint); }
+  .drop-zone svg { width: 32px; height: 32px; color: var(--text-2); margin-bottom: 10px; }
+  .drop-zone p { font-size: 14px; color: var(--text-2); margin: 0; }
+  .drop-zone strong { color: var(--green); }
+  .drop-zone input { display: none; }
+  .upload-meta-fields {
+    margin-top: 20px;
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .field-row { display: flex; flex-direction: column; gap: 5px; }
+  .field-row label { font-size: 12px; font-weight: 500; color: var(--text-2); }
+  .field-row input, .field-row select {
+    padding: 9px 12px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    font-size: 14px; font-family: 'Inter', sans-serif;
+    background: var(--bg); color: var(--text);
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .field-row input:focus, .field-row select:focus { border-color: var(--green); }
+  .modal-actions {
+    display: flex; gap: 10px; justify-content: flex-end;
+    margin-top: 24px;
+  }
+  .btn-secondary {
+    padding: 9px 18px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    font-size: 13px; font-weight: 500;
+    background: none; color: var(--text-2);
+    cursor: pointer; transition: all 0.15s;
+  }
+  .btn-secondary:hover { border-color: var(--text-2); color: var(--text); }
+  .upload-progress {
+    margin-top: 16px; display: none;
+  }
+  .progress-bar-wrap {
+    height: 5px; background: var(--border); border-radius: 3px; overflow: hidden;
+  }
+  .progress-bar {
+    height: 100%; background: var(--green); border-radius: 3px;
+    width: 0%; transition: width 0.3s;
+  }
+  .progress-label { font-size: 12px; color: var(--text-2); margin-top: 6px; }
+  .upload-file-list { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; max-height: 120px; overflow-y: auto; }
+  .upload-file-item { font-size: 12px; color: var(--text-2); display: flex; align-items: center; gap: 6px; }
+  .upload-file-item .check { color: var(--green); }
+
+  /* ── MAP PAGE ── */
+  .map-page { padding: 0; }
+  .map-header {
+    padding: 24px 32px 20px;
+    display: flex; align-items: flex-end; justify-content: space-between;
+  }
+  .map-layout {
+    display: flex;
+    height: calc(100vh - 160px);
+    gap: 0;
+  }
+  .map-wrap {
+    flex: 1;
+    position: relative;
+    background: #2a3a2e;
+    overflow: hidden;
+  }
+  /* Satellite map simulation */
+  .map-canvas {
+    width: 100%; height: 100%;
+    background:
+      radial-gradient(ellipse 120px 80px at 30% 20%, #1a2e1c 0%, transparent 60%),
+      radial-gradient(ellipse 200px 160px at 60% 35%, #243d28 0%, transparent 70%),
+      radial-gradient(ellipse 150px 120px at 20% 60%, #1e3222 0%, transparent 60%),
+      radial-gradient(ellipse 100px 90px at 75% 65%, #2a4030 0%, transparent 60%),
+      radial-gradient(ellipse 180px 100px at 45% 80%, #1a2e1c 0%, transparent 70%),
+      radial-gradient(ellipse 80px 60px at 85% 20%, #243d28 0%, transparent 60%),
+      #2C3E2E;
+    position: relative;
+  }
+  /* House shape */
+  .map-house {
+    position: absolute; top: 12%; right: 12%;
+    width: 120px; height: 90px;
+    background: #b5b0a8;
+    border-radius: 3px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  }
+  .map-house::after {
+    content: '';
+    position: absolute; top: -22px; left: -10px; right: -10px;
+    border-left: 70px solid transparent;
+    border-right: 70px solid transparent;
+    border-bottom: 24px solid #8c867e;
+  }
+  .map-house-label {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    font-size: 9px; font-weight: 600; color: rgba(0,0,0,0.5);
+    text-transform: uppercase; letter-spacing: 0.08em; white-space: nowrap;
+  }
+  /* Pond */
+  .map-pond {
+    position: absolute; bottom: 18%; right: 20%;
+    width: 60px; height: 45px;
+    background: #3d6b7a;
+    border-radius: 50% 60% 50% 40%;
+    opacity: 0.8;
+    box-shadow: inset 0 2px 6px rgba(0,0,0,0.3);
+  }
+  /* Path */
+  .map-path {
+    position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+    pointer-events: none;
+  }
+  /* Camera markers on map */
+  .cam-marker {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    cursor: pointer;
+    z-index: 10;
+  }
+  .cam-marker-pin {
+    width: 32px; height: 32px;
+    background: var(--green);
+    border: 2px solid white;
+    border-radius: 50% 50% 50% 0;
+    transform: rotate(-45deg);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+    display: flex; align-items: center; justify-content: center;
+    transition: transform 0.15s;
+  }
+  .cam-marker:hover .cam-marker-pin { transform: rotate(-45deg) scale(1.15); }
+  .cam-marker-pin svg { transform: rotate(45deg); width: 14px; height: 14px; color: white; }
+  .cam-marker-label {
+    position: absolute; top: -26px; left: 50%; transform: translateX(-50%);
+    background: rgba(20,30,22,0.82); color: white;
+    font-size: 10px; font-weight: 500;
+    padding: 2px 7px; border-radius: 4px;
+    white-space: nowrap; pointer-events: none;
+  }
+  /* Sighting dots */
+  .sighting-dot {
+    position: absolute;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    border: 2px solid white;
+    transform: translate(-50%, -50%);
+    cursor: pointer;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+    z-index: 8;
+  }
+  /* Map popup */
+  .map-popup {
+    display: none;
+    position: absolute; z-index: 20;
+    background: var(--surface);
+    border-radius: var(--radius);
+    box-shadow: 0 8px 28px rgba(0,0,0,0.25);
+    width: 220px;
+    padding: 14px;
+    pointer-events: none;
+  }
+  .map-popup.show { display: block; }
+  .map-popup h4 { font-family: 'DM Serif Display', serif; font-size: 15px; margin-bottom: 6px; }
+  .map-popup-field { font-size: 12px; color: var(--text-2); margin-bottom: 3px; }
+  .map-popup-field strong { color: var(--text); }
+  .map-popup-link {
+    display: inline-block; margin-top: 8px;
+    font-size: 12px; color: var(--green); font-weight: 500;
+    text-decoration: none; cursor: pointer;
+    pointer-events: all;
+  }
+  .map-popup-thumb {
+    width: 100%; height: 80px; object-fit: cover;
+    border-radius: 6px; margin-top: 8px;
+    background: var(--border);
+  }
+  /* Map controls */
+  .map-controls {
+    position: absolute; top: 14px; left: 14px; z-index: 15;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .map-ctrl-btn {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 12px; font-weight: 500;
+    cursor: pointer; color: var(--text-2);
+    transition: all 0.15s;
+    white-space: nowrap;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .map-ctrl-btn .indicator {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--green);
+  }
+  .map-ctrl-btn.off .indicator { background: var(--border); }
+  /* Sighting feed */
+  .sighting-feed {
+    width: 300px; flex-shrink: 0;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .sighting-feed-header {
+    padding: 16px 18px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .sighting-feed-header h4 {
+    font-size: 11px; font-weight: 600; color: var(--text-2);
+    letter-spacing: 0.08em; text-transform: uppercase;
+  }
+  .sighting-list { overflow-y: auto; flex: 1; }
+  .sighting-item {
+    display: flex; gap: 12px; align-items: flex-start;
+    padding: 12px 18px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    transition: background 0.12s;
+  }
+  .sighting-item:hover { background: var(--bg); }
+  .sighting-thumb {
+    width: 52px; height: 40px; border-radius: 6px;
+    object-fit: cover; background: var(--border); flex-shrink: 0;
+  }
+  .sighting-info { flex: 1; min-width: 0; }
+  .sighting-animal {
+    font-size: 13px; font-weight: 500; color: var(--text);
+    display: flex; align-items: center; gap: 5px; margin-bottom: 2px;
+  }
+  .sighting-animal .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .sighting-detail { font-size: 11px; color: var(--text-2); }
+
+  /* Map place-camera UI */
+  .map-add-cam-btn {
+    position: absolute; bottom: 16px; left: 14px; z-index: 15;
+    background: var(--green); color: white;
+    border: none; border-radius: 7px;
+    padding: 8px 14px;
+    font-size: 12px; font-weight: 500;
+    cursor: pointer;
+    display: flex; align-items: center; gap: 6px;
+    transition: background 0.15s;
+  }
+  .map-add-cam-btn:hover { background: var(--green-light); }
+
+  /* ── SETTINGS PAGE ── */
+  .settings-page { max-width: 640px; margin: 0 auto; padding: 40px 32px; }
+  .settings-page h2 { font-family: 'DM Serif Display', serif; font-size: 26px; margin-bottom: 6px; }
+  .settings-page .sub { font-size: 14px; color: var(--text-2); margin-bottom: 32px; }
+  .settings-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+    margin-bottom: 16px;
+  }
+  .settings-section h3 { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+  .settings-section p { font-size: 13px; color: var(--text-2); margin-bottom: 16px; }
+  .settings-field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
+  .settings-field label { font-size: 12px; font-weight: 500; color: var(--text-2); }
+  .settings-field input {
+    padding: 9px 12px;
+    border: 1px solid var(--border); border-radius: 7px;
+    font-size: 14px; font-family: 'Inter', sans-serif;
+    background: var(--bg); color: var(--text); outline: none;
+  }
+  .settings-field input:focus { border-color: var(--green); }
+  .btn-save {
+    padding: 9px 20px;
+    background: var(--green); color: white;
+    border: none; border-radius: 7px;
+    font-size: 13px; font-weight: 500; cursor: pointer;
+    transition: background 0.15s;
+  }
+  .btn-save:hover { background: var(--green-light); }
+  .storage-bar-wrap {
+    height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; margin: 10px 0;
+  }
+  .storage-bar { height: 100%; background: var(--green); border-radius: 3px; width: 12%; }
+  .storage-label { font-size: 13px; color: var(--text-2); }
+
+  /* Coming soon badge */
+  .badge-soon {
+    display: inline-block;
+    font-size: 10px; font-weight: 600;
+    background: var(--amber-faint);
+    color: var(--amber);
+    border: 1px solid #f0d5a8;
+    padding: 2px 7px; border-radius: 20px;
+    letter-spacing: 0.04em; text-transform: uppercase;
+    margin-left: 8px; vertical-align: middle;
+  }
+
+  /* ── LIVE PAGE ── */
+  .live-grid {
+    padding: 0 32px 48px;
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px;
+  }
+  @media (max-width: 1400px) { .live-grid { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 1024px) { .live-grid { grid-template-columns: repeat(2, 1fr); } }
+  .cam-tile {
+    position: relative; border-radius: var(--radius); overflow: hidden;
+    background: #20261F; aspect-ratio: 4/3; cursor: pointer;
+    box-shadow: var(--shadow); transition: transform 0.18s, box-shadow 0.18s;
+  }
+  .cam-tile:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.13); }
+  .cam-tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .cam-tile-overlay {
+    position: absolute; inset: 0; padding: 12px;
+    background: linear-gradient(to top, rgba(20,30,22,0.85) 0%, transparent 55%);
+    display: flex; flex-direction: column; justify-content: flex-end;
+  }
+  .cam-tile-name { font-size: 14px; font-weight: 600; color: #fff; }
+  .cam-tile-meta { font-size: 11px; color: rgba(255,255,255,0.75); margin-top: 2px; }
+  .cam-status {
+    position: absolute; top: 10px; left: 10px;
+    display: flex; align-items: center; gap: 5px;
+    background: rgba(20,30,22,0.65); backdrop-filter: blur(4px);
+    padding: 3px 8px; border-radius: 20px;
+    font-size: 10px; font-weight: 500; color: #fff;
+    text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .cam-status .s-dot { width: 7px; height: 7px; border-radius: 50%; }
+  .cam-status.online .s-dot { background: #5BBF7B; }
+  .cam-status.offline .s-dot { background: #C0564E; }
+  .cam-status.offline { opacity: 0.85; }
+  .cam-tile-live {
+    position: absolute; top: 10px; right: 10px;
+    background: rgba(196,136,58,0.92); color: #fff;
+    font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+    padding: 3px 8px; border-radius: 4px;
+  }
+
+  /* Single-camera live view */
+  .live-detail {
+    padding: 18px 32px 40px;
+    display: grid; grid-template-columns: minmax(380px, 1fr) 1.15fr; gap: 18px;
+    align-items: start;
+  }
+  @media (max-width: 1000px) { .live-detail { grid-template-columns: 1fr; } }
+  .live-back {
+    background: none; border: none; color: var(--text-2);
+    font-size: 13px; font-weight: 500; cursor: pointer; padding: 0; margin-bottom: 12px;
+  }
+  .live-back:hover { color: var(--text); }
+  .live-stream-wrap {
+    position: relative; background: #000; border-radius: 12px; overflow: hidden;
+    aspect-ratio: 4/3; cursor: grab;
+  }
+  .live-stream-wrap.dragging { cursor: grabbing; }
+  #liveStream {
+    width: 100%; height: 100%; object-fit: contain; display: block;
+    transform-origin: center center; transition: transform 0.15s; pointer-events: none;
+  }
+  .live-stream-wrap.dragging #liveStream { transition: none; }
+  .live-overlay {
+    position: absolute; top: 12px; left: 12px;
+    background: rgba(0,0,0,0.6); color: #fff;
+    padding: 6px 12px; border-radius: 20px; font-size: 12px;
+    display: flex; align-items: center; gap: 6px; pointer-events: none;
+  }
+  .live-dot { width: 8px; height: 8px; background: #ef4444; border-radius: 50%; animation: livePulse 1.5s infinite; }
+  @keyframes livePulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+  .live-zoom-badge {
+    position: absolute; top: 12px; right: 12px;
+    background: rgba(0,0,0,0.6); color: #fff;
+    padding: 6px 12px; border-radius: 20px; font-size: 12px;
+    pointer-events: none; font-variant-numeric: tabular-nums;
+  }
+  .live-demo-note {
+    position: absolute; left: 12px; right: 12px; bottom: 12px;
+    background: rgba(20,30,22,0.82); color: rgba(255,255,255,0.92);
+    font-size: 11px; line-height: 1.45; padding: 8px 11px; border-radius: 8px; pointer-events: none;
+  }
+  .live-hint { font-size: 11px; color: var(--text-2); text-align: center; margin-top: 8px; font-style: italic; }
+  .live-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  .live-actions button { flex: 1; min-width: 130px; }
+  .live-status { font-size: 12px; color: var(--text-2); text-align: center; margin-top: 10px; min-height: 16px; }
+
+  .live-panel {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 18px;
+  }
+  .live-presets { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 18px; }
+  .preset {
+    border: none; border-radius: 7px; padding: 9px;
+    font-size: 12px; font-weight: 600; cursor: pointer; color: #fff; transition: transform 0.15s;
+  }
+  .preset:hover { transform: translateY(-1px); }
+  .p-uw { background: linear-gradient(135deg, #2193b0, #6dd5ed); }
+  .p-day { background: linear-gradient(135deg, #d99a13, #f4c430); color: #3a2f12; }
+  .p-night { background: linear-gradient(135deg, #3a4150, #5b6478); }
+  .live-cols { column-width: 220px; column-gap: 20px; }
+  .live-group { break-inside: avoid; margin-bottom: 18px; }
+  .live-group h4 {
+    font-size: 11px; font-weight: 600; color: var(--text-2);
+    letter-spacing: 0.08em; text-transform: uppercase;
+    margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border);
+  }
+  .live-row { margin-bottom: 11px; }
+  .live-row label { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-2); margin-bottom: 5px; font-weight: 500; }
+  .live-row .val { color: var(--green); font-variant-numeric: tabular-nums; }
+  .live-row select {
+    width: 100%; padding: 7px 9px;
+    border: 1px solid var(--border); border-radius: 7px;
+    font-size: 12px; font-family: 'Inter', sans-serif;
+    background: var(--bg); color: var(--text); outline: none;
+  }
+  .live-row select:focus { border-color: var(--green); }
+  .live-row input[type=range] { width: 100%; height: 24px; -webkit-appearance: none; background: transparent; cursor: pointer; }
+  .live-row input[type=range]::-webkit-slider-runnable-track { height: 4px; background: var(--green-faint); border-radius: 2px; }
+  .live-row input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 15px; height: 15px; background: var(--green); border-radius: 50%; margin-top: -5.5px; cursor: pointer; }
+  .live-toggle {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 7px 10px; background: var(--bg); border-radius: 8px; margin-bottom: 6px;
+  }
+  .live-toggle span { font-size: 12px; color: var(--text-2); }
+  .live-switch {
+    position: relative; width: 36px; height: 20px;
+    background: var(--border); border-radius: 11px; cursor: pointer;
+    transition: background 0.2s; flex: none;
+  }
+  .live-switch.on { background: var(--green); }
+  .live-switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; background: #fff; border-radius: 50%; transition: transform 0.2s; }
+  .live-switch.on::after { transform: translateX(16px); }
+  .live-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+
+  /* Toast */
+  .toast {
+    position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%);
+    background: #1A1A18; color: white;
+    padding: 10px 20px; border-radius: 8px;
+    font-size: 13px; font-weight: 500;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+    z-index: 300; opacity: 0; pointer-events: none;
+    transition: opacity 0.2s;
+  }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a class="nav-brand" href="#" onclick="return false;">
+    <div class="nav-brand-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/>
+      </svg>
+    </div>
+    <span class="nav-brand-name">WildWatch</span>
+  </a>
+  <div class="nav-links">
+    <button class="nav-link active" onclick="showPage('library', this)">Library</button>
+    <button class="nav-link" onclick="showPage('live', this)">Live</button>
+    <button class="nav-link" onclick="showPage('map', this)">Map</button>
+    <button class="nav-link" onclick="showPage('settings', this)">Settings</button>
+  </div>
+  <div class="nav-right">
+    <button class="btn-upload" onclick="openUpload()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 5 5 12"/></svg>
+      Upload Photos
+    </button>
+    <div class="avatar">J</div>
+  </div>
+</nav>
+
+<!-- ══════════════ LIBRARY PAGE ══════════════ -->
+<div id="page-library" class="page active">
+  <div class="library-header">
+    <div>
+      <div class="library-title">Photo Library</div>
+      <div class="photo-count" id="photoCount">24 photos</div>
+    </div>
+    <select class="sort-select" onchange="handleSort(this.value)">
+      <option value="newest">Newest first</option>
+      <option value="oldest">Oldest first</option>
+      <option value="animal">Animal type</option>
+      <option value="camera">Camera</option>
+    </select>
+  </div>
+
+  <div class="filter-bar">
+    <div class="search-row">
+      <div class="search-wrap">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input class="search-input" type="text" placeholder="Search animals, cameras, notes…" oninput="handleSearch(this.value)" id="searchInput">
+      </div>
+      <div class="filter-panel-wrap">
+        <button class="filter-chip" id="filterBtn" onclick="toggleFilterPanel()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="11" y1="18" x2="13" y2="18"/></svg>
+          Filters
+        </button>
+        <div class="filter-panel" id="filterPanel">
+          <div class="filter-group">
+            <h4>Animal Type</h4>
+            <div class="filter-tags" id="animalFilterTags">
+              <div class="ftag" onclick="toggleAnimalFilter('White-tailed Deer', this)">White-tailed Deer</div>
+              <div class="ftag" onclick="toggleAnimalFilter('Black Bear', this)">Black Bear</div>
+              <div class="ftag" onclick="toggleAnimalFilter('Coyote', this)">Coyote</div>
+              <div class="ftag" onclick="toggleAnimalFilter('Red Fox', this)">Red Fox</div>
+              <div class="ftag" onclick="toggleAnimalFilter('Wild Turkey', this)">Wild Turkey</div>
+              <div class="ftag" onclick="toggleAnimalFilter('Raccoon', this)">Raccoon</div>
+              <div class="ftag" onclick="toggleAnimalFilter('Bobcat', this)">Bobcat</div>
+              <div class="ftag" onclick="toggleAnimalFilter('Unknown', this)">Unknown</div>
+            </div>
+          </div>
+          <div class="filter-group">
+            <h4>Date Range</h4>
+            <div class="filter-date-row">
+              <input type="date" id="dateFrom" value="2026-01-01">
+              <input type="date" id="dateTo" value="2026-06-11">
+            </div>
+          </div>
+          <div class="filter-group">
+            <h4>Time of Day</h4>
+            <div class="filter-tags" id="timeFilterTags">
+              <div class="ftag" onclick="toggleTimeFilter('Dawn', this)">Dawn</div>
+              <div class="ftag" onclick="toggleTimeFilter('Morning', this)">Morning</div>
+              <div class="ftag" onclick="toggleTimeFilter('Afternoon', this)">Afternoon</div>
+              <div class="ftag" onclick="toggleTimeFilter('Dusk', this)">Dusk</div>
+              <div class="ftag" onclick="toggleTimeFilter('Night', this)">Night</div>
+            </div>
+          </div>
+          <div class="filter-group">
+            <h4>Camera</h4>
+            <div class="filter-tags" id="cameraFilterTags">
+              <div class="ftag" onclick="toggleCameraFilter('Back Trail Cam', this)">Back Trail Cam</div>
+              <div class="ftag" onclick="toggleCameraFilter('Pond Cam', this)">Pond Cam</div>
+              <div class="ftag" onclick="toggleCameraFilter('Oak Grove Cam', this)">Oak Grove Cam</div>
+            </div>
+          </div>
+          <button class="apply-btn" onclick="applyFilters()">Apply Filters</button>
+        </div>
+      </div>
+    </div>
+    <div class="filter-chips-row" id="activeFiltersRow" style="display:none;"></div>
+  </div>
+
+  <div class="photo-grid" id="photoGrid"></div>
+  <div class="empty-state" id="emptyState">
+    <div class="empty-icon">🌿</div>
+    <h3>No photos found</h3>
+    <p>Try adjusting your filters or search terms.</p>
+  </div>
+</div>
+
+<!-- ══════════════ LIVE PAGE ══════════════ -->
+<div id="page-live" class="page">
+  <!-- Grid of all cameras -->
+  <div id="liveGridView">
+    <div class="library-header">
+      <div>
+        <div class="library-title">Live Cameras</div>
+        <div class="photo-count" id="liveCount">— cameras</div>
+      </div>
+    </div>
+    <div class="live-grid" id="liveGrid"></div>
+  </div>
+
+  <!-- Single-camera live view + control panel (ported from the device firmware) -->
+  <div id="liveDetailView" class="live-detail" style="display:none;">
+    <div class="live-main">
+      <button class="live-back" onclick="closeLive()">← All cameras</button>
+      <div class="live-stream-wrap" id="liveWrap">
+        <img id="liveStream" draggable="false" alt="">
+        <div class="live-overlay"><span class="live-dot"></span>LIVE · <span id="liveCamName">Camera</span></div>
+        <div class="live-zoom-badge" id="liveZoomBadge">1.0x</div>
+        <div class="live-demo-note" id="liveDemoNote" style="display:none;">Demo mode — showing a placeholder. When this camera is reachable on the network, its live MJPEG stream appears here.</div>
+      </div>
+      <div class="live-hint">Scroll to zoom · drag to pan</div>
+      <div class="live-actions">
+        <button class="btn-save" onclick="liveSnap()">Snapshot → Library</button>
+        <button class="btn-secondary" onclick="toggleLiveStream()" id="liveStreamBtn">Pause</button>
+        <button class="btn-secondary" onclick="resetZoom()">Reset Zoom</button>
+      </div>
+      <div class="live-status" id="liveStatus">Ready</div>
+    </div>
+
+    <div class="live-panel">
+      <div class="live-presets">
+        <button class="preset p-uw" onclick="applyPreset(PRESETS.underwater)">Underwater</button>
+        <button class="preset p-day" onclick="applyPreset(PRESETS.daylight)">Daylight</button>
+        <button class="preset p-night" onclick="applyPreset(PRESETS.night)">Night</button>
+      </div>
+      <div class="live-cols">
+        <div class="live-group">
+          <h4>Zoom</h4>
+          <div class="live-row">
+            <label>Zoom <span class="val" id="zoomval">1.0x</span></label>
+            <input type="range" min="100" max="500" value="100" id="zoom" oninput="setZoom(this.value)">
+          </div>
+        </div>
+
+        <div class="live-group">
+          <h4>Resolution &amp; Quality</h4>
+          <div class="live-row">
+            <label>Frame Size</label>
+            <select id="framesize" onchange="camSet('framesize',this.value)">
+              <option value="13">UXGA (1600x1200)</option>
+              <option value="12">SXGA (1280x1024)</option>
+              <option value="11">HD (1280x720)</option>
+              <option value="10">XGA (1024x768)</option>
+              <option value="9">SVGA (800x600)</option>
+              <option value="8" selected>VGA (640x480)</option>
+              <option value="6">HVGA (480x320)</option>
+              <option value="5">CIF (400x296)</option>
+              <option value="4">QVGA (320x240)</option>
+              <option value="3">240x240</option>
+              <option value="1">QQVGA (160x120)</option>
+              <option value="0">96x96</option>
+            </select>
+          </div>
+          <div class="live-row">
+            <label>JPEG Quality <span class="val" id="qval">12</span></label>
+            <input type="range" min="4" max="63" value="12" id="quality"
+              oninput="qval.textContent=this.value" onchange="camSet('quality',this.value)">
+          </div>
+        </div>
+
+        <div class="live-group">
+          <h4>Image</h4>
+          <div class="live-row">
+            <label>Brightness <span class="val" id="bval">0</span></label>
+            <input type="range" min="-2" max="2" value="0" id="brightness"
+              oninput="bval.textContent=this.value" onchange="camSet('brightness',this.value)">
+          </div>
+          <div class="live-row">
+            <label>Contrast <span class="val" id="cval">0</span></label>
+            <input type="range" min="-2" max="2" value="0" id="contrast"
+              oninput="cval.textContent=this.value" onchange="camSet('contrast',this.value)">
+          </div>
+          <div class="live-row">
+            <label>Saturation <span class="val" id="sval">0</span></label>
+            <input type="range" min="-2" max="2" value="0" id="saturation"
+              oninput="sval.textContent=this.value" onchange="camSet('saturation',this.value)">
+          </div>
+          <div class="live-row">
+            <label>Special Effect</label>
+            <select id="special_effect" onchange="camSet('special_effect',this.value)">
+              <option value="0" selected>None</option>
+              <option value="1">Negative</option>
+              <option value="2">Grayscale</option>
+              <option value="3">Red Tint</option>
+              <option value="4">Green Tint</option>
+              <option value="5">Blue Tint</option>
+              <option value="6">Sepia</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="live-group">
+          <h4>White Balance</h4>
+          <div class="live-toggle"><span>Auto White Balance</span>
+            <div class="live-switch on" data-k="whitebal" onclick="camTog(this,'whitebal')"></div></div>
+          <div class="live-toggle"><span>AWB Gain</span>
+            <div class="live-switch on" data-k="awb_gain" onclick="camTog(this,'awb_gain')"></div></div>
+          <div class="live-row">
+            <label>WB Mode</label>
+            <select id="wb_mode" onchange="camSet('wb_mode',this.value)">
+              <option value="0" selected>Auto</option>
+              <option value="1">Sunny</option>
+              <option value="2">Cloudy</option>
+              <option value="3">Office</option>
+              <option value="4">Home</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="live-group">
+          <h4>Exposure &amp; Gain</h4>
+          <div class="live-toggle"><span>Auto Exposure</span>
+            <div class="live-switch on" data-k="exposure_ctrl" onclick="camTog(this,'exposure_ctrl')"></div></div>
+          <div class="live-toggle"><span>AEC DSP</span>
+            <div class="live-switch on" data-k="aec2" onclick="camTog(this,'aec2')"></div></div>
+          <div class="live-row">
+            <label>AE Level <span class="val" id="aval">0</span></label>
+            <input type="range" min="-2" max="2" value="0" id="ae_level"
+              oninput="aval.textContent=this.value" onchange="camSet('ae_level',this.value)">
+          </div>
+          <div class="live-row">
+            <label>Exposure <span class="val" id="eval">300</span></label>
+            <input type="range" min="0" max="1200" value="300" id="aec_value"
+              oninput="document.getElementById('eval').textContent=this.value" onchange="camSet('aec_value',this.value)">
+          </div>
+          <div class="live-toggle"><span>Auto Gain</span>
+            <div class="live-switch on" data-k="gain_ctrl" onclick="camTog(this,'gain_ctrl')"></div></div>
+          <div class="live-row">
+            <label>Gain <span class="val" id="gval">0</span></label>
+            <input type="range" min="0" max="30" value="0" id="agc_gain"
+              oninput="gval.textContent=this.value" onchange="camSet('agc_gain',this.value)">
+          </div>
+          <div class="live-row">
+            <label>Gain Ceiling</label>
+            <select id="gainceiling" onchange="camSet('gainceiling',this.value)">
+              <option value="0" selected>2x</option><option value="1">4x</option>
+              <option value="2">8x</option><option value="3">16x</option>
+              <option value="4">32x</option><option value="5">64x</option>
+              <option value="6">128x</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="live-group">
+          <h4>Pixel Processing</h4>
+          <div class="live-grid2">
+            <div class="live-toggle"><span>BPC</span>
+              <div class="live-switch" data-k="bpc" onclick="camTog(this,'bpc')"></div></div>
+            <div class="live-toggle"><span>WPC</span>
+              <div class="live-switch on" data-k="wpc" onclick="camTog(this,'wpc')"></div></div>
+            <div class="live-toggle"><span>Gamma</span>
+              <div class="live-switch on" data-k="raw_gma" onclick="camTog(this,'raw_gma')"></div></div>
+            <div class="live-toggle"><span>Lens Corr</span>
+              <div class="live-switch on" data-k="lenc" onclick="camTog(this,'lenc')"></div></div>
+            <div class="live-toggle"><span>H Mirror</span>
+              <div class="live-switch" data-k="hmirror" onclick="camTog(this,'hmirror')"></div></div>
+            <div class="live-toggle"><span>V Flip</span>
+              <div class="live-switch" data-k="vflip" onclick="camTog(this,'vflip')"></div></div>
+            <div class="live-toggle"><span>DCW</span>
+              <div class="live-switch on" data-k="dcw" onclick="camTog(this,'dcw')"></div></div>
+            <div class="live-toggle"><span>Color Bar</span>
+              <div class="live-switch" data-k="colorbar" onclick="camTog(this,'colorbar')"></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════ MAP PAGE ══════════════ -->
+<div id="page-map" class="page">
+  <div class="map-header">
+    <div>
+      <div class="library-title">Property Map</div>
+      <div class="photo-count" id="mapSub">Backyard — Antioch, CA · 3 cameras placed</div>
+    </div>
+  </div>
+  <div class="map-layout">
+    <div class="map-wrap">
+      <div class="map-canvas" id="mapCanvas" onclick="handleMapClick(event)">
+        <!-- House -->
+        <div class="map-house" style="top:10%;right:10%;">
+          <div class="map-house-label">590</div>
+        </div>
+        <!-- Pond -->
+        <div class="map-pond"></div>
+        <!-- SVG paths / trails -->
+        <svg class="map-path" viewBox="0 0 100 100" preserveAspectRatio="none">
+          <path d="M35,85 Q40,70 38,55 Q36,42 45,30" stroke="#c4883a" stroke-width="0.3" fill="none" stroke-dasharray="1,2" opacity="0.5"/>
+          <path d="M20,65 Q30,58 38,55" stroke="#c4883a" stroke-width="0.3" fill="none" stroke-dasharray="1,2" opacity="0.4"/>
+        </svg>
+        <!-- Camera markers are generated from the CAMERAS array (see init script) -->
+        <!-- Sighting dots -->
+        <div class="sighting-dot" id="sdots" style="top:55%;left:40%;background:#C4883A;" title="Deer sighting" onclick="showSightingPopup(event,'White-tailed Deer','Back Trail Cam','12 sightings')"></div>
+        <div class="sighting-dot" style="top:59%;left:35%;background:#C4883A;" onclick="showSightingPopup(event,'White-tailed Deer','Back Trail Cam','12 sightings')"></div>
+        <div class="sighting-dot" style="top:78%;left:74%;background:#8B6F47;" onclick="showSightingPopup(event,'Raccoon','Pond Cam','5 sightings')"></div>
+        <div class="sighting-dot" style="top:26%;left:25%;background:#6B8E5E;" onclick="showSightingPopup(event,'Wild Turkey','Oak Grove Cam','8 sightings')"></div>
+        <div class="sighting-dot" style="top:31%;left:20%;background:#C4883A;" onclick="showSightingPopup(event,'White-tailed Deer','Oak Grove Cam','7 sightings')"></div>
+        <div class="sighting-dot" style="top:74%;left:70%;background:#C4883A;" onclick="showSightingPopup(event,'White-tailed Deer','Pond Cam','4 sightings')"></div>
+        <!-- Map popup -->
+        <div class="map-popup" id="mapPopup">
+          <h4 id="popupTitle">Back Trail Cam</h4>
+          <div class="map-popup-field">📸 <strong id="popupPhotos">34 photos</strong></div>
+          <div class="map-popup-field">🕐 Last capture: <strong id="popupDate">June 10, 2026</strong></div>
+          <span class="map-popup-link" id="popupLink" onclick="filterAndGoToLibrary()">View photos →</span>
+        </div>
+        <!-- Controls -->
+        <div class="map-controls">
+          <button class="map-ctrl-btn" onclick="toggleMapLayer(this, 'cameras')"><span class="indicator"></span> Cameras</button>
+          <button class="map-ctrl-btn" onclick="toggleMapLayer(this, 'sightings')"><span class="indicator"></span> Sightings</button>
+        </div>
+        <button class="map-add-cam-btn" onclick="showToast('Click anywhere on the map to place a camera')">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add Camera
+        </button>
+      </div>
+    </div>
+    <!-- Sighting feed -->
+    <div class="sighting-feed">
+      <div class="sighting-feed-header"><h4>Recent Sightings</h4></div>
+      <div class="sighting-list" id="sightingList"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════ SETTINGS PAGE ══════════════ -->
+<div id="page-settings" class="page">
+  <div class="settings-page">
+    <h2>Settings</h2>
+    <p class="sub">Manage your account, property, and camera preferences.</p>
+
+    <div class="settings-section">
+      <h3>Account</h3>
+      <p>Your login credentials and authentication options.</p>
+      <div class="settings-field">
+        <label>Email</label>
+        <input type="email" value="jane@example.com">
+      </div>
+      <div class="settings-field">
+        <label>Password</label>
+        <input type="password" value="••••••••••">
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;">
+        <span style="font-size:13px;color:var(--text-2);">Google sign-in</span>
+        <span class="badge-soon">Coming in v1.1</span>
+      </div>
+      <button class="btn-save" onclick="showToast('Account saved')">Save Changes</button>
+    </div>
+
+    <div class="settings-section">
+      <h3>Property Location</h3>
+      <p>Set the center point for your property map. This is used to initialize the Map view.</p>
+      <div class="settings-field">
+        <label>Address or coordinates</label>
+        <input type="text" value="Antioch, CA 94509" id="propertyLocation">
+      </div>
+      <button class="btn-save" onclick="showToast('Property location saved')">Update Location</button>
+    </div>
+
+    <div class="settings-section">
+      <h3>Storage</h3>
+      <p>Unlimited storage in v1.0 — all your photos are kept at full resolution.</p>
+      <div class="storage-bar-wrap"><div class="storage-bar"></div></div>
+      <div class="storage-label">2.4 GB used · unlimited available</div>
+    </div>
+
+    <div class="settings-section">
+      <h3>Custom Animal Tags</h3>
+      <p>Add tags beyond the built-in list. These appear alongside standard tags when uploading or filtering.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;" id="customTagsDisplay">
+        <span class="filter-chip active" style="cursor:default;">Mountain Lion <span class="chip-x" onclick="removeCustomTag(this)">×</span></span>
+        <span class="filter-chip active" style="cursor:default;">Gray Fox <span class="chip-x" onclick="removeCustomTag(this)">×</span></span>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <input type="text" id="newTagInput" placeholder="New tag…" style="flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:7px;font-size:13px;font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);outline:none;" onkeydown="if(event.key==='Enter')addCustomTag()">
+        <button class="btn-save" onclick="addCustomTag()">Add</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════ LIGHTBOX ══════════════ -->
+<div class="lightbox" id="lightbox" onclick="closeLightboxOnBg(event)">
+  <div class="lightbox-inner">
+    <div class="lightbox-img-wrap">
+      <button class="lb-nav lb-prev" onclick="lbNav(-1)">&#8592;</button>
+      <img id="lbImg" src="" alt="">
+      <video id="lbVideo" controls playsinline preload="metadata" style="display:none;"></video>
+      <button class="lb-nav lb-next" onclick="lbNav(1)">&#8594;</button>
+    </div>
+    <div class="lightbox-meta">
+      <button class="lb-close" onclick="closeLightbox()">✕</button>
+      <div class="lb-animal">
+        <span class="dot" id="lbDot"></span>
+        <span id="lbAnimal"></span>
+      </div>
+      <hr class="lb-divider">
+      <div class="lb-field"><label>Date & Time</label><span id="lbDate"></span></div>
+      <div class="lb-field"><label>Camera</label><span id="lbCamera"></span></div>
+      <div class="lb-field"><label>Location</label><span id="lbLocation"></span></div>
+      <div class="lb-field"><label>Time of Day</label><span id="lbTime"></span></div>
+      <div class="lb-field"><label>Notes</label><span id="lbNotes"></span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════ UPLOAD MODAL ══════════════ -->
+<div class="modal-bg" id="uploadModal" onclick="closeModalOnBg(event)">
+  <div class="modal">
+    <h3>Upload Photos &amp; Videos</h3>
+    <p>Drag photos or videos here or browse. Date &amp; time are recorded automatically.</p>
+    <div class="drop-zone" id="dropZone" ondrop="handleDrop(event)" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" onclick="document.getElementById('fileInput').click()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      <p><strong>Drop photos or videos here</strong> or click to browse</p>
+      <p style="margin-top:6px;font-size:12px;">JPG, PNG, HEIC · MP4, MOV, WebM · Bulk upload supported</p>
+      <input type="file" id="fileInput" multiple accept="image/*,video/*" onchange="handleFileSelect(event)">
+    </div>
+    <div class="upload-meta-fields">
+      <div class="field-row">
+        <label>Animal Type (applies to all uploaded files)</label>
+        <select id="uploadAnimal">
+          <option value="">Select animal…</option>
+          <option>White-tailed Deer</option>
+          <option>Black Bear</option>
+          <option>Coyote</option>
+          <option>Red Fox</option>
+          <option>Wild Turkey</option>
+          <option>Raccoon</option>
+          <option>Bobcat</option>
+          <option>Mountain Lion</option>
+          <option>Gray Fox</option>
+          <option>Unknown</option>
+        </select>
+      </div>
+      <div class="field-row">
+        <label>Camera</label>
+        <select id="uploadCamera">
+          <option value="">Select camera…</option>
+          <option>Back Trail Cam</option>
+          <option>Pond Cam</option>
+          <option>Oak Grove Cam</option>
+        </select>
+      </div>
+      <div class="field-row">
+        <label>Notes (optional)</label>
+        <input type="text" id="uploadNotes" placeholder="e.g. Large buck, 8 points">
+      </div>
+    </div>
+    <div class="upload-progress" id="uploadProgress">
+      <div class="progress-bar-wrap"><div class="progress-bar" id="progressBar"></div></div>
+      <div class="progress-label" id="progressLabel">Uploading…</div>
+      <div class="upload-file-list" id="fileList"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeUpload()">Cancel</button>
+      <button class="btn-upload" onclick="startUpload()">Upload</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ── DATA ──────────────────────────────────────────────────────────────────────
+const ANIMAL_COLORS = {
+  'White-tailed Deer': '#C4883A',
+  'Mule Deer': '#C4883A',
+  'Black Bear': '#4A3728',
+  'Coyote': '#8B7355',
+  'Red Fox': '#C1572A',
+  'Gray Fox': '#7A7A7A',
+  'Wild Turkey': '#6B8E5E',
+  'Raccoon': '#8B6F47',
+  'Bobcat': '#A07850',
+  'Mountain Lion': '#9B6B4A',
+  'Unknown': '#9E9E9E',
+};
+
+// ── CAMERAS ───────────────────────────────────────────────────────────────────
+// Cameras are now first-class objects, not just name strings. Each one carries an
+// id (used to link snapshots and to address the device), the network host the
+// firmware is reachable at, a live status, a map position, and a thumbnail seed.
+// In a real deployment `host` would come from each camera self-registering with
+// the hub on boot; here we seed 20 so the UI is exercised at full scale.
+const CAM_NAMES = ['Back Trail Cam','Pond Cam','Oak Grove Cam','North Ridge Cam',
+  'Creek Crossing Cam','Meadow Cam','Fence Line Cam','Old Barn Cam','Apple Orchard Cam',
+  'Cedar Stand Cam','South Gate Cam','Deer Run Cam','Spring Box Cam','Hilltop Cam',
+  'Willow Bend Cam','Brush Pile Cam','East Field Cam','Game Trail Cam','Salt Lick Cam',
+  'Driveway Cam'];
+const CAMERAS = CAM_NAMES.map((name, i) => ({
+  id: 'cam-' + String(i + 1).padStart(2, '0'),
+  name,
+  // Control/UI is on :80, the MJPEG stream on :81 (matches the firmware).
+  host: 'http://192.168.1.' + (101 + i),
+  status: (i % 7 === 0 && i !== 0) ? 'offline' : 'online',
+  thumbSeed: (i + 1) * 15,
+  map: { top: 16 + ((i * 37) % 68), left: 14 + ((i * 53) % 72) },
+}));
+function getCamera(id) { return CAMERAS.find(c => c.id === id) || CAMERAS[0]; }
+function cameraNames() { return CAMERAS.map(c => c.name); }
+function streamUrl(c) { return c.host + ':81/stream'; }       // live MJPEG endpoint
+function camThumb(c) { return 'https://picsum.photos/seed/cam' + c.thumbSeed + '/400/300'; }
+
+const TIMES = ['Dawn', 'Morning', 'Afternoon', 'Dusk', 'Night'];
+const ANIMALS = Object.keys(ANIMAL_COLORS);
+
+function rnd(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+function rndDate() {
+  const d = new Date(2026, Math.floor(Math.random()*5), Math.floor(Math.random()*28)+1,
+    Math.floor(Math.random()*24), Math.floor(Math.random()*60));
+  return d;
+}
+function fmtDate(d) {
+  return d.toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'}) + ' · ' +
+    d.toLocaleTimeString('en-US', {hour:'2-digit',minute:'2-digit'});
+}
+function timeOfDay(d) {
+  const h = d.getHours();
+  if (h < 6) return 'Night'; if (h < 8) return 'Dawn';
+  if (h < 12) return 'Morning'; if (h < 17) return 'Afternoon';
+  if (h < 20) return 'Dusk'; return 'Night';
+}
+
+const photoSeeds = [10,20,30,40,50,60,70,80,90,100,110,120,130,140,150,160,170,180,190,200,210,220,230,240];
+let allPhotos = photoSeeds.map((seed, i) => {
+  const animal = ANIMALS[i % ANIMALS.length];
+  const cam = CAMERAS[i % CAMERAS.length];
+  const dt = rndDate();
+  return {
+    id: i,
+    src: `https://picsum.photos/seed/${seed}/600/450`,
+    thumb: `https://picsum.photos/seed/${seed}/400/300`,
+    animal,
+    color: ANIMAL_COLORS[animal],
+    cameraId: cam.id,
+    camera: cam.name,        // display name kept so existing filter/search/sort code works
+    location: 'Backyard — Antioch, CA',
+    date: dt,
+    dateStr: fmtDate(dt),
+    timeOfDay: timeOfDay(dt),
+    notes: i % 5 === 0 ? 'Motion triggered near oak tree' : '',
+  };
+});
+allPhotos.sort((a,b) => b.date - a.date);
+
+// ── STATE ─────────────────────────────────────────────────────────────────────
+let currentPhotos = [...allPhotos];
+let lbIndex = 0;
+let activeAnimalFilters = new Set();
+let activeTimeFilters = new Set();
+let activeCameraFilters = new Set();
+let searchQuery = '';
+let selectedFiles = [];
+
+// ── RENDER GRID ───────────────────────────────────────────────────────────────
+function renderGrid(photos) {
+  const grid = document.getElementById('photoGrid');
+  const empty = document.getElementById('emptyState');
+  document.getElementById('photoCount').textContent = `${photos.length} photo${photos.length !== 1 ? 's' : ''}`;
+  if (!photos.length) { grid.innerHTML = ''; empty.classList.add('visible'); return; }
+  empty.classList.remove('visible');
+  grid.innerHTML = photos.map((p, i) => {
+    const media = p.type === 'video'
+      ? (p.thumb
+          ? `<img src="${p.thumb}" alt="${p.animal}" loading="lazy"><span class="video-badge">&#9654;</span>`
+          : `<div class="video-fallback"><span class="video-badge" style="position:static;transform:none">&#9654;</span></div>`)
+      : `<img src="${p.thumb}" alt="${p.animal}" loading="lazy">`;
+    return `
+    <div class="photo-card" onclick="openLightbox(${i})">
+      ${media}
+      <div class="photo-tag">${p.camera.replace(' Cam','')}</div>
+      <div class="photo-label">
+        <div class="label-animal">
+          <span class="dot" style="background:${p.color}"></span>
+          ${p.animal}
+        </div>
+        <div class="label-meta">${p.dateStr}</div>
+      </div>
+    </div>
+  `;
+  }).join('');
+  currentPhotos = photos;
+}
+
+// ── FILTERING ─────────────────────────────────────────────────────────────────
+function applyFiltersAndSearch() {
+  let result = allPhotos.filter(p => {
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      const hit = p.animal.toLowerCase().includes(q) ||
+        p.camera.toLowerCase().includes(q) ||
+        p.location.toLowerCase().includes(q) ||
+        p.notes.toLowerCase().includes(q);
+      if (!hit) return false;
+    }
+    if (activeAnimalFilters.size && !activeAnimalFilters.has(p.animal)) return false;
+    if (activeTimeFilters.size && !activeTimeFilters.has(p.timeOfDay)) return false;
+    if (activeCameraFilters.size && !activeCameraFilters.has(p.camera)) return false;
+    return true;
+  });
+  renderGrid(result);
+  renderActiveFilters();
+}
+
+function handleSearch(val) { searchQuery = val; applyFiltersAndSearch(); }
+function handleSort(val) {
+  if (val === 'newest') allPhotos.sort((a,b) => b.date - a.date);
+  else if (val === 'oldest') allPhotos.sort((a,b) => a.date - b.date);
+  else if (val === 'animal') allPhotos.sort((a,b) => a.animal.localeCompare(b.animal));
+  else if (val === 'camera') allPhotos.sort((a,b) => a.camera.localeCompare(b.camera));
+  applyFiltersAndSearch();
+}
+
+function toggleAnimalFilter(val, el) {
+  el.classList.toggle('active');
+  activeAnimalFilters.has(val) ? activeAnimalFilters.delete(val) : activeAnimalFilters.add(val);
+}
+function toggleTimeFilter(val, el) {
+  el.classList.toggle('active');
+  activeTimeFilters.has(val) ? activeTimeFilters.delete(val) : activeTimeFilters.add(val);
+}
+function toggleCameraFilter(val, el) {
+  el.classList.toggle('active');
+  activeCameraFilters.has(val) ? activeCameraFilters.delete(val) : activeCameraFilters.add(val);
+}
+
+function applyFilters() {
+  toggleFilterPanel();
+  applyFiltersAndSearch();
+}
+
+function renderActiveFilters() {
+  const row = document.getElementById('activeFiltersRow');
+  const all = [
+    ...[...activeAnimalFilters].map(v => ({v, type:'animal'})),
+    ...[...activeTimeFilters].map(v => ({v, type:'time'})),
+    ...[...activeCameraFilters].map(v => ({v, type:'camera'})),
+  ];
+  if (!all.length && !searchQuery) { row.style.display = 'none'; return; }
+  row.style.display = 'flex';
+  let html = all.map(f => `<span class="active-filter-tag" onclick="removeFilter('${f.v}','${f.type}')">${f.v} <span>×</span></span>`).join('');
+  if (all.length) html += `<button class="clear-all-btn" onclick="clearAllFilters()">Clear all</button>`;
+  row.innerHTML = html;
+}
+
+function removeFilter(val, type) {
+  if (type === 'animal') { activeAnimalFilters.delete(val); document.querySelectorAll('.ftag').forEach(el => { if(el.textContent.trim()===val) el.classList.remove('active'); }); }
+  if (type === 'time') { activeTimeFilters.delete(val); }
+  if (type === 'camera') { activeCameraFilters.delete(val); }
+  applyFiltersAndSearch();
+}
+
+function clearAllFilters() {
+  activeAnimalFilters.clear(); activeTimeFilters.clear(); activeCameraFilters.clear();
+  document.querySelectorAll('.ftag').forEach(el => el.classList.remove('active'));
+  searchQuery = ''; document.getElementById('searchInput').value = '';
+  applyFiltersAndSearch();
+}
+
+function toggleFilterPanel() {
+  const panel = document.getElementById('filterPanel');
+  const btn = document.getElementById('filterBtn');
+  panel.classList.toggle('open');
+  btn.classList.toggle('active');
+}
+
+// Close filter panel on outside click
+document.addEventListener('click', e => {
+  const wrap = document.querySelector('.filter-panel-wrap');
+  if (wrap && !wrap.contains(e.target)) {
+    document.getElementById('filterPanel').classList.remove('open');
+    document.getElementById('filterBtn').classList.remove('active');
+  }
+});
+
+// ── LIGHTBOX ──────────────────────────────────────────────────────────────────
+function openLightbox(idx) {
+  lbIndex = idx;
+  updateLightbox();
+  document.getElementById('lightbox').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+function closeLightbox() {
+  const vid = document.getElementById('lbVideo');
+  if (vid) vid.pause();
+  document.getElementById('lightbox').classList.remove('open');
+  document.body.style.overflow = '';
+}
+function closeLightboxOnBg(e) { if (e.target === document.getElementById('lightbox')) closeLightbox(); }
+function lbNav(dir) { lbIndex = (lbIndex + dir + currentPhotos.length) % currentPhotos.length; updateLightbox(); }
+function updateLightbox() {
+  const p = currentPhotos[lbIndex];
+  if (!p) return;
+  const img = document.getElementById('lbImg');
+  const vid = document.getElementById('lbVideo');
+  if (p.type === 'video') {
+    img.style.display = 'none';
+    img.removeAttribute('src');
+    vid.src = p.src;
+    vid.style.display = 'block';
+    vid.load();
+  } else {
+    vid.pause();
+    vid.removeAttribute('src');
+    vid.load();
+    vid.style.display = 'none';
+    img.src = p.src;
+    img.style.display = 'block';
+  }
+  document.getElementById('lbAnimal').textContent = p.animal;
+  document.getElementById('lbDot').style.background = p.color;
+  document.getElementById('lbDate').textContent = p.dateStr;
+  document.getElementById('lbCamera').textContent = p.camera;
+  document.getElementById('lbLocation').textContent = p.location;
+  document.getElementById('lbTime').textContent = p.timeOfDay;
+  document.getElementById('lbNotes').textContent = p.notes || '—';
+}
+document.addEventListener('keydown', e => {
+  if (!document.getElementById('lightbox').classList.contains('open')) return;
+  if (e.key === 'ArrowLeft') lbNav(-1);
+  if (e.key === 'ArrowRight') lbNav(1);
+  if (e.key === 'Escape') closeLightbox();
+});
+
+// ── UPLOAD ────────────────────────────────────────────────────────────────────
+function openUpload() { document.getElementById('uploadModal').classList.add('open'); document.body.style.overflow='hidden'; }
+function closeUpload() { document.getElementById('uploadModal').classList.remove('open'); document.body.style.overflow=''; selectedFiles=[]; document.getElementById('uploadProgress').style.display='none'; document.getElementById('progressBar').style.width='0%'; }
+function closeModalOnBg(e) { if (e.target === document.getElementById('uploadModal')) closeUpload(); }
+function handleDragOver(e) { e.preventDefault(); document.getElementById('dropZone').classList.add('dragging'); }
+function handleDragLeave() { document.getElementById('dropZone').classList.remove('dragging'); }
+function handleDrop(e) { e.preventDefault(); document.getElementById('dropZone').classList.remove('dragging'); processFiles(e.dataTransfer.files); }
+function handleFileSelect(e) { processFiles(e.target.files); }
+function processFiles(files) {
+  selectedFiles = Array.from(files);
+  const dz = document.getElementById('dropZone');
+  dz.querySelector('p').innerHTML = `<strong>${selectedFiles.length} file${selectedFiles.length!==1?'s':''} ready to upload</strong>`;
+}
+function readFileAsDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+// Grab a representative still frame from a video so the grid has a thumbnail.
+// Resolves to a JPEG data URL, or null if the frame can't be captured.
+function generateVideoPoster(file) {
+  return new Promise((resolve) => {
+    let settled = false;
+    let url;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      if (url) URL.revokeObjectURL(url);
+      resolve(result);
+    };
+    try {
+      url = URL.createObjectURL(file);
+      const video = document.createElement('video');
+      video.muted = true;
+      video.playsInline = true;
+      video.preload = 'metadata';
+      video.src = url;
+      video.onloadeddata = () => {
+        try { video.currentTime = Math.min(0.5, (video.duration || 2) / 2); }
+        catch (e) { finish(null); }
+      };
+      video.onseeked = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = video.videoWidth || 400;
+          canvas.height = video.videoHeight || 300;
+          canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+          finish(canvas.toDataURL('image/jpeg', 0.7));
+        } catch (e) { finish(null); }
+      };
+      video.onerror = () => finish(null);
+      setTimeout(() => finish(null), 5000); // safety net
+    } catch (e) { finish(null); }
+  });
+}
+
+function startUpload() {
+  if (!selectedFiles.length) { showToast('Select at least one file first'); return; }
+  const animal = document.getElementById('uploadAnimal').value || 'Unknown';
+  const camera = document.getElementById('uploadCamera').value || 'Back Trail Cam';
+  const notes = document.getElementById('uploadNotes').value;
+  const prog = document.getElementById('uploadProgress');
+  const bar = document.getElementById('progressBar');
+  const label = document.getElementById('progressLabel');
+  const list = document.getElementById('fileList');
+  prog.style.display = 'block';
+  list.innerHTML = '';
+  // Capture the files now so closing the modal (which clears selectedFiles) can't wipe them mid-upload.
+  const filesToUpload = selectedFiles.slice();
+  let done = 0;
+  async function step() {
+    if (done >= filesToUpload.length) {
+      label.textContent = 'Processing files…';
+      try {
+        // Photos become embedded data URLs; videos use a lightweight object URL
+        // for playback plus a captured still frame for the grid thumbnail.
+        const items = await Promise.all(filesToUpload.map(async (f) => {
+          if ((f.type || '').startsWith('video/')) {
+            const poster = await generateVideoPoster(f);
+            return { type: 'video', src: URL.createObjectURL(f), thumb: poster };
+          }
+          const dataUrl = await readFileAsDataURL(f);
+          return { type: 'image', src: dataUrl, thumb: dataUrl };
+        }));
+        const baseId = Date.now();
+        // Insert in reverse so the first file selected ends up at the top of the library.
+        for (let i = items.length - 1; i >= 0; i--) {
+          const dt = new Date();
+          allPhotos.unshift({
+            id: baseId + i,
+            src: items[i].src,
+            thumb: items[i].thumb,
+            type: items[i].type,
+            animal, color: ANIMAL_COLORS[animal]||'#9E9E9E', camera,
+            location: 'Backyard — Antioch, CA', date: dt,
+            dateStr: fmtDate(dt), timeOfDay: timeOfDay(dt), notes,
+          });
+        }
+        label.textContent = 'Upload complete!';
+        setTimeout(() => { closeUpload(); applyFiltersAndSearch(); showToast(`${filesToUpload.length} file${filesToUpload.length!==1?'s':''} added to library`); }, 400);
+      } catch (err) {
+        label.textContent = 'Could not read one or more files.';
+        showToast('Something went wrong reading your files');
+      }
+      return;
+    }
+    const f = filesToUpload[done];
+    done++;
+    const pct = Math.round((done / filesToUpload.length) * 100);
+    bar.style.width = pct + '%';
+    label.textContent = `Uploading ${done} of ${filesToUpload.length}…`;
+    list.innerHTML += `<div class="upload-file-item"><span class="check">✓</span>${f.name}</div>`;
+    list.scrollTop = list.scrollHeight;
+    setTimeout(step, 300 + Math.random()*300);
+  }
+  step();
+}
+
+// ── MAP ───────────────────────────────────────────────────────────────────────
+let camVisible = true, sightingsVisible = true;
+
+function toggleMapLayer(btn, layer) {
+  if (layer === 'cameras') {
+    camVisible = !camVisible;
+    document.querySelectorAll('.cam-marker').forEach(el => el.style.display = camVisible ? '' : 'none');
+  } else {
+    sightingsVisible = !sightingsVisible;
+    document.querySelectorAll('.sighting-dot').forEach(el => el.style.display = sightingsVisible ? '' : 'none');
+  }
+  btn.classList.toggle('off');
+}
+
+function showCamPopup(e, name, photos, date, key) {
+  e.stopPropagation();
+  const popup = document.getElementById('mapPopup');
+  document.getElementById('popupTitle').textContent = name;
+  document.getElementById('popupPhotos').textContent = photos;
+  document.getElementById('popupDate').textContent = date;
+  popup.dataset.cam = name;
+  const rect = document.getElementById('mapCanvas').getBoundingClientRect();
+  let x = e.clientX - rect.left + 16;
+  let y = e.clientY - rect.top - 60;
+  if (x + 230 > rect.width) x = e.clientX - rect.left - 240;
+  popup.style.left = x + 'px'; popup.style.top = y + 'px';
+  popup.classList.add('show');
+}
+function showSightingPopup(e, animal, camera, count) {
+  e.stopPropagation();
+  const popup = document.getElementById('mapPopup');
+  document.getElementById('popupTitle').textContent = animal;
+  document.getElementById('popupPhotos').textContent = count + ' at ' + camera;
+  document.getElementById('popupDate').textContent = camera;
+  popup.dataset.cam = camera;
+  const rect = document.getElementById('mapCanvas').getBoundingClientRect();
+  let x = e.clientX - rect.left + 16;
+  let y = e.clientY - rect.top - 60;
+  if (x + 230 > rect.width) x = e.clientX - rect.left - 240;
+  popup.style.left = x + 'px'; popup.style.top = y + 'px';
+  popup.classList.add('show');
+}
+function handleMapClick(e) {
+  if (!e.target.classList.contains('map-canvas') && !e.target.classList.contains('map-pond') && !e.target.classList.contains('map-path')) return;
+  document.getElementById('mapPopup').classList.remove('show');
+}
+function filterAndGoToLibrary() {
+  const camName = document.getElementById('mapPopup').dataset.cam;
+  activeCameraFilters.clear(); activeAnimalFilters.clear(); activeTimeFilters.clear();
+  if (camName && cameraNames().includes(camName)) activeCameraFilters.add(camName);
+  showPage('library', document.querySelectorAll('.nav-link')[0]);
+  applyFiltersAndSearch();
+  showToast(`Showing photos from ${camName}`);
+}
+
+// Sighting feed
+function renderSightingFeed() {
+  const recent = [...allPhotos].slice(0, 18);
+  document.getElementById('sightingList').innerHTML = recent.map(p => `
+    <div class="sighting-item" onclick="showPage('library', document.querySelectorAll('.nav-link')[0]); openLightbox(allPhotos.indexOf(p))">
+      ${p.thumb
+        ? `<img class="sighting-thumb" src="${p.thumb}" alt="${p.animal}" loading="lazy">`
+        : `<div class="sighting-thumb" style="background:${p.color};display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px">&#9654;</div>`}
+      <div class="sighting-info">
+        <div class="sighting-animal">
+          <span class="dot" style="background:${p.color}"></span>${p.animal}
+        </div>
+        <div class="sighting-detail">${p.camera} · ${p.timeOfDay}</div>
+        <div class="sighting-detail">${p.date.toLocaleDateString('en-US',{month:'short',day:'numeric'})}</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+// ── NAV ───────────────────────────────────────────────────────────────────────
+function showPage(name, btn) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  if (btn) btn.classList.add('active');
+  if (name === 'map') renderSightingFeed();
+  if (name === 'live') {
+    document.getElementById('liveDetailView').style.display = 'none';
+    document.getElementById('liveGridView').style.display = 'block';
+    renderLiveGrid();
+  }
+}
+
+// ── SETTINGS ──────────────────────────────────────────────────────────────────
+function addCustomTag() {
+  const input = document.getElementById('newTagInput');
+  const val = input.value.trim();
+  if (!val) return;
+  const display = document.getElementById('customTagsDisplay');
+  const span = document.createElement('span');
+  span.className = 'filter-chip active';
+  span.style.cursor = 'default';
+  span.innerHTML = `${val} <span class="chip-x" onclick="removeCustomTag(this)">×</span>`;
+  display.appendChild(span);
+  // Also add to upload select and filter panel
+  const sel = document.getElementById('uploadAnimal');
+  const opt = new Option(val, val);
+  sel.appendChild(opt);
+  ANIMAL_COLORS[val] = '#9E9E9E';
+  input.value = '';
+  showToast(`Tag "${val}" added`);
+}
+function removeCustomTag(el) { el.parentElement.remove(); }
+
+// ── TOAST ─────────────────────────────────────────────────────────────────────
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2400);
+}
+
+// ── LIVE CAMERAS ──────────────────────────────────────────────────────────────
+// State for the single-camera live view.
+let liveCam = null;
+let liveStreaming = true;
+let liveZoom = 100, livePanX = 0, livePanY = 0;
+let liveDragging = false, lDragSX = 0, lDragSY = 0, lDragPX = 0, lDragPY = 0;
+
+function setLiveStatus(msg) { const el = document.getElementById('liveStatus'); if (el) el.textContent = msg; }
+
+// Render the grid of all cameras (online status, last-frame thumbnail, photo count).
+function renderLiveGrid() {
+  const grid = document.getElementById('liveGrid');
+  if (!grid) return;
+  document.getElementById('liveCount').textContent =
+    `${CAMERAS.length} camera${CAMERAS.length !== 1 ? 's' : ''}`;
+  grid.innerHTML = CAMERAS.map(c => {
+    const count = allPhotos.filter(p => p.cameraId === c.id).length;
+    return `
+      <div class="cam-tile" onclick="openLive('${c.id}')">
+        <img src="${camThumb(c)}" alt="${c.name}" loading="lazy">
+        <div class="cam-status ${c.status}"><span class="s-dot"></span>${c.status}</div>
+        ${c.status === 'online' ? '<div class="cam-tile-live">Live</div>' : ''}
+        <div class="cam-tile-overlay">
+          <div class="cam-tile-name">${c.name}</div>
+          <div class="cam-tile-meta">${count} photo${count !== 1 ? 's' : ''} · ${c.host.replace('http://','')}</div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+// Open the live view for one camera. The <img> points at that camera's MJPEG
+// stream; if it can't be reached (e.g. in this prototype, or camera offline) we
+// fall back to a placeholder still and surface a note.
+function openLive(id) {
+  liveCam = getCamera(id);
+  document.getElementById('liveGridView').style.display = 'none';
+  document.getElementById('liveDetailView').style.display = 'grid';
+  document.getElementById('liveCamName').textContent = liveCam.name;
+  resetZoom();
+  resetLiveControls();
+  liveStreaming = true;
+  document.getElementById('liveStreamBtn').textContent = 'Pause';
+  setLiveStatus('Connecting…');
+  const img = document.getElementById('liveStream');
+  const note = document.getElementById('liveDemoNote');
+  note.style.display = 'none';
+  img.onload = () => setLiveStatus('Streaming');
+  img.onerror = () => {
+    img.onload = null; img.onerror = null;
+    note.style.display = 'block';
+    setLiveStatus('Showing placeholder · camera unreachable');
+    img.src = 'https://picsum.photos/seed/cam' + liveCam.thumbSeed + '/640/480';
+  };
+  img.src = streamUrl(liveCam);
+}
+
+function closeLive() {
+  const img = document.getElementById('liveStream');
+  img.onload = null; img.onerror = null; img.removeAttribute('src');
+  document.getElementById('liveDetailView').style.display = 'none';
+  document.getElementById('liveGridView').style.display = 'block';
+  liveCam = null;
+  renderLiveGrid();   // reflect any snapshots just taken
+}
+
+// Pause/resume the stream by dropping/restoring the <img> source.
+function toggleLiveStream() {
+  const img = document.getElementById('liveStream');
+  const btn = document.getElementById('liveStreamBtn');
+  if (liveStreaming) {
+    img.dataset.src = img.src; img.removeAttribute('src');
+    btn.textContent = 'Resume'; liveStreaming = false; setLiveStatus('Stream paused');
+  } else {
+    img.src = img.dataset.src || streamUrl(liveCam);
+    btn.textContent = 'Pause'; liveStreaming = true; setLiveStatus('Streaming');
+  }
+}
+
+// ── ZOOM / PAN ──
+function liveApplyTransform() {
+  const s = liveZoom / 100;
+  const img = document.getElementById('liveStream');
+  img.style.transform = `translate(${livePanX}px, ${livePanY}px) scale(${s})`;
+  document.getElementById('liveZoomBadge').textContent = s.toFixed(1) + 'x';
+  const zoomLbl = document.getElementById('zoomval'); if (zoomLbl) zoomLbl.textContent = s.toFixed(1) + 'x';
+  const zoomSl = document.getElementById('zoom'); if (zoomSl) zoomSl.value = liveZoom;
+}
+function setZoom(v) {
+  liveZoom = Math.max(100, Math.min(500, parseInt(v) || 100));
+  if (liveZoom === 100) { livePanX = 0; livePanY = 0; }
+  liveApplyTransform();
+}
+function resetZoom() { liveZoom = 100; livePanX = 0; livePanY = 0; liveApplyTransform(); }
+
+// ── CONTROLS ──
+// camSet pushes a setting to the live camera's /control endpoint (port 80). In
+// this prototype the device isn't reachable, so the fetch fails quietly and the
+// UI still reflects the change — wire a real hub/camera host and it goes live.
+function camSet(k, v) {
+  setLiveStatus(k + ' = ' + v);
+  if (!liveCam) return;
+  try { fetch(liveCam.host + '/control?var=' + encodeURIComponent(k) + '&val=' + encodeURIComponent(v)).catch(() => {}); }
+  catch (e) { /* ignore in prototype */ }
+}
+function camTog(el, k) { el.classList.toggle('on'); camSet(k, el.classList.contains('on') ? 1 : 0); }
+
+const DISP = { brightness:'bval', contrast:'cval', saturation:'sval', quality:'qval',
+               ae_level:'aval', aec_value:'eval', agc_gain:'gval' };
+
+// Push a value to the camera AND sync the matching slider / select / toggle.
+function uiSet(k, v) {
+  camSet(k, v);
+  const el = document.getElementById(k);
+  if (el && el.tagName !== 'DIV') el.value = v;
+  if (DISP[k]) document.getElementById(DISP[k]).textContent = v;
+  const sw = document.querySelector('.live-switch[data-k="' + k + '"]');
+  if (sw) sw.classList.toggle('on', v == 1);
+}
+function applyPreset(p) { for (const k in p) uiSet(k, p[k]); setLiveStatus('Preset applied'); }
+
+const PRESETS = {
+  underwater: { whitebal:1, awb_gain:1, wb_mode:2, special_effect:0,
+                saturation:2, contrast:1, brightness:1, ae_level:1,
+                exposure_ctrl:1, aec2:1, gain_ctrl:1, gainceiling:3, raw_gma:1, lenc:1 },
+  daylight:   { whitebal:1, awb_gain:1, wb_mode:1, special_effect:0,
+                saturation:0, contrast:0, brightness:0, ae_level:0,
+                exposure_ctrl:1, aec2:1, gain_ctrl:1, agc_gain:0, gainceiling:0, raw_gma:1, lenc:1 },
+  night:      { whitebal:1, awb_gain:1, wb_mode:0, special_effect:0,
+                saturation:0, contrast:1, brightness:1, ae_level:2,
+                exposure_ctrl:1, aec2:1, gain_ctrl:1, gainceiling:6, raw_gma:1, lenc:1 }
+};
+
+// Reset every control to its default when a fresh camera is opened (UI only).
+const LIVE_DEF_SEL = { framesize:8, quality:12, brightness:0, contrast:0, saturation:0,
+  special_effect:0, wb_mode:0, ae_level:0, aec_value:300, agc_gain:0, gainceiling:0, zoom:100 };
+const LIVE_DEF_TOG = { whitebal:1, awb_gain:1, exposure_ctrl:1, aec2:1, gain_ctrl:1,
+  wpc:1, raw_gma:1, lenc:1, dcw:1, bpc:0, hmirror:0, vflip:0, colorbar:0 };
+function resetLiveControls() {
+  for (const k in LIVE_DEF_SEL) {
+    const el = document.getElementById(k); if (el) el.value = LIVE_DEF_SEL[k];
+    if (DISP[k]) document.getElementById(DISP[k]).textContent = LIVE_DEF_SEL[k];
+  }
+  for (const k in LIVE_DEF_TOG) {
+    const sw = document.querySelector('.live-switch[data-k="' + k + '"]');
+    if (sw) sw.classList.toggle('on', LIVE_DEF_TOG[k] === 1);
+  }
+}
+
+// ── SNAPSHOT → LIBRARY ──
+// Grab the current frame (real /capture if reachable, otherwise a placeholder),
+// burn in a date/location caption strip like the firmware does, then drop it
+// straight into the photo library so the live→archive flow is visible.
+function loadCorsImage(url) {
+  return new Promise((res, rej) => {
+    const im = new Image(); im.crossOrigin = 'anonymous';
+    im.onload = () => res(im); im.onerror = rej; im.src = url;
+  });
+}
+async function liveSnap() {
+  if (!liveCam) return;
+  setLiveStatus('Capturing…');
+  let frame = null, W = 640, H = 480;
+  try {
+    const blob = await fetch(liveCam.host + '/capture?t=' + Date.now()).then(r => { if (!r.ok) throw 0; return r.blob(); });
+    frame = await createImageBitmap(blob);
+  } catch (e) { frame = null; }
+  if (!frame) {
+    try { frame = await loadCorsImage('https://picsum.photos/seed/cap' + liveCam.thumbSeed + '-' + Date.now() + '/640/480'); }
+    catch (e) { frame = null; }
+  }
+  if (frame) { W = frame.width || frame.naturalWidth || 640; H = frame.height || frame.naturalHeight || 480; }
+
+  const stripH = Math.max(28, Math.round(H * 0.06));
+  const cv = document.createElement('canvas');
+  cv.width = W; cv.height = H + stripH;
+  const ctx = cv.getContext('2d');
+  if (frame) {
+    ctx.drawImage(frame, 0, 0, W, H);
+  } else {
+    ctx.fillStyle = '#20261F'; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#6B8E5E'; ctx.font = 'bold 26px Inter, sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText(liveCam.name, W / 2, H / 2); ctx.textAlign = 'left';
+  }
+  const dt = new Date();
+  const caption = fmtDate(dt) + '   |   ' + liveCam.name + '   |   Backyard — Antioch, CA';
+  ctx.fillStyle = 'rgba(0,0,0,0.82)'; ctx.fillRect(0, H, cv.width, stripH);
+  let fs = Math.max(11, Math.round(stripH * 0.5));
+  ctx.fillStyle = '#fff'; ctx.textBaseline = 'middle'; ctx.font = fs + 'px Inter, sans-serif';
+  while (ctx.measureText(caption).width > cv.width - 20 && fs > 9) { fs--; ctx.font = fs + 'px Inter, sans-serif'; }
+  ctx.fillText(caption, 12, H + stripH / 2);
+
+  let dataUrl;
+  try { dataUrl = cv.toDataURL('image/jpeg', 0.9); }
+  catch (e) { setLiveStatus('Capture blocked (cross-origin)'); showToast('Could not save snapshot'); return; }
+
+  allPhotos.unshift({
+    id: Date.now(), src: dataUrl, thumb: dataUrl, type: 'image',
+    animal: 'Unknown', color: ANIMAL_COLORS['Unknown'],
+    cameraId: liveCam.id, camera: liveCam.name,
+    location: 'Backyard — Antioch, CA', date: dt,
+    dateStr: fmtDate(dt), timeOfDay: timeOfDay(dt), notes: 'Live snapshot',
+  });
+  setLiveStatus('Snapshot saved to Library');
+  showToast('Snapshot from ' + liveCam.name + ' saved to Library');
+  applyFiltersAndSearch();
+}
+
+// Wheel-to-zoom and drag-to-pan on the live image (attached once; guarded by liveCam).
+(function () {
+  const wrap = document.getElementById('liveWrap');
+  if (!wrap) return;
+  wrap.addEventListener('wheel', e => {
+    if (!liveCam) return;
+    e.preventDefault();
+    setZoom(liveZoom + (e.deltaY < 0 ? 25 : -25));
+  }, { passive: false });
+  wrap.addEventListener('mousedown', e => {
+    if (!liveCam || liveZoom <= 100) return;
+    liveDragging = true; wrap.classList.add('dragging');
+    lDragSX = e.clientX; lDragSY = e.clientY; lDragPX = livePanX; lDragPY = livePanY;
+  });
+  window.addEventListener('mousemove', e => {
+    if (!liveDragging) return;
+    livePanX = lDragPX + (e.clientX - lDragSX);
+    livePanY = lDragPY + (e.clientY - lDragSY);
+    liveApplyTransform();
+  });
+  window.addEventListener('mouseup', () => { liveDragging = false; wrap.classList.remove('dragging'); });
+})();
+
+// Build camera-driven UI: filter tags, upload picker, map markers, header count.
+(function () {
+  const ft = document.getElementById('cameraFilterTags');
+  if (ft) ft.innerHTML = CAMERAS.map(c =>
+    `<div class="ftag" onclick="toggleCameraFilter('${c.name}', this)">${c.name}</div>`).join('');
+
+  const us = document.getElementById('uploadCamera');
+  if (us) us.innerHTML = '<option value="">Select camera…</option>' +
+    CAMERAS.map(c => `<option>${c.name}</option>`).join('');
+
+  const mc = document.getElementById('mapCanvas');
+  if (mc) {
+    const pinSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"/><polyline points="17 2 12 7 7 2"/><circle cx="12" cy="14" r="3"/></svg>';
+    CAMERAS.forEach(c => {
+      const count = allPhotos.filter(p => p.cameraId === c.id).length;
+      const m = document.createElement('div');
+      m.className = 'cam-marker';
+      m.style.top = c.map.top + '%'; m.style.left = c.map.left + '%';
+      m.addEventListener('click', e => showCamPopup(e, c.name, count + ' photos', '—', c.id));
+      m.innerHTML = `<div class="cam-marker-label">${c.name}</div><div class="cam-marker-pin">${pinSvg}</div>`;
+      mc.appendChild(m);
+    });
+  }
+
+  const sub = document.getElementById('mapSub');
+  if (sub) sub.textContent = `Backyard — Antioch, CA · ${CAMERAS.length} cameras placed`;
+})();
+
+// ── INIT ──────────────────────────────────────────────────────────────────────
+renderGrid(allPhotos);
+renderLiveGrid();
+
+</script>
+</body>
+</html>
