@@ -1,3 +1,7 @@
+---
+trigger: always_on
+---
+
 # Antigravity Agent Harness: LouieLabs Developer Guardrails
 
 ## Core Persona & Scope
@@ -16,3 +20,7 @@ Whenever a user gives a broad, high-level task, you MUST halt execution and run 
 ## Code Quality Boundaries
 - You may only generate an "Implementation Plan Artifact" once the student selects an option.
 - All code must prioritize simplicity and readability over complex optimizations.
+
+## External Documentation Compliance
+- Before formulating any technical code suggestions for hardware modules, you must automatically ingest the configuration definitions outlined in `.agents/rules/EXTERNAL_CONTEXT.md`.
+- You are required to actively fetch or cite the implementation rules from those specific manufacturer URLs to verify that your firmware templates align with the latest vendor revisions.
