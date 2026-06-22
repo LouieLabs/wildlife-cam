@@ -56,6 +56,21 @@ signal. Native USB isn't available either — its D+/D- pins (GPIO19/20) are use
 for the RGB LED and the camera power-down. So the firmware has no way to know the
 monitor was opened; the periodic re-run is the clean alternative.
 
+**Use `serial_monitor_noreset.py`, not the IDE Serial Monitor, during dev.** The
+Arduino IDE Serial Monitor toggles DTR/RTS when it opens — that **warm-resets the
+board**. On a warm reset the SD card stays powered in its already-initialized SPI
+state, and re-init can fail on a marginal card, so you'll see `f_mount = 3`
+(`NOT_READY`) **even though the card mounted fine on the actual cold boot.** The
+included monitor holds the reset line inactive so it never resets the board:
+
+```bash
+python3 serial_monitor_noreset.py        # defaults: /dev/cu.usbserial-0001 @ 115200
+```
+
+(Needs `pip3 install pyserial`; Ctrl-C to quit. Start it first, then power-cycle
+to watch a fresh boot.) Reminder: only a true **power cycle** (USB unplug) clears
+a wedged card — RST, reflash, and opening the IDE monitor do not.
+
 ## Library gotcha (important)
 
 This core renames the SD header. Use:
