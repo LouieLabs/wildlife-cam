@@ -9,7 +9,18 @@ build/
 *.elf
 *.hex
 *.map
-**/.DS_Store
 
 # Local scratch / temp
 tmp/
+
+# PlatformIO local build caches and compiled binaries
+.pio/
+.pioenvs/
+
+# Local VS Code workspace settings (per Gemini for sharing configs)
+.vscode/*
+!.vscode/extensions.json
+
+# OS-specific hidden garbage files
+**/.DS_Store
+**/Thumbs.db
