@@ -39,15 +39,15 @@
  */
 
 #include <SPI.h>
-#include <halow_SD.h>     // HaLow core's SD library (provides fs::SDFS SD)
-#include <sd_diskio.h>    // low-level sdcard_init/type/num_sectors for diagnostics
-#include <ff.h>           // FatFs API -- to read the exact f_mount FRESULT
+#include <halow_SD.h>   // HaLow core's SD library (provides fs::SDFS SD)
+#include <sd_diskio.h>  // low-level sdcard_init/type/num_sectors for diagnostics
+#include <ff.h>         // FatFs API -- to read the exact f_mount FRESULT
 
 // --- HT-HC33 SD pins (SPI mode, HSPI bus) ---
-static const int SD_SCK  = 15;
+static const int SD_SCK = 15;
 static const int SD_MISO = 16;
 static const int SD_MOSI = 11;
-static const int SD_CS   = 10;
+static const int SD_CS = 10;
 
 // Heltec drives the SD slot on the HSPI peripheral with its own SPIClass.
 SPIClass SD_SPI(HSPI);
@@ -59,7 +59,10 @@ static const char *TEST_PATH = "/predupe_sdtest.txt";
 void writeFile(fs::FS &fs, const char *path, const char *message) {
   Serial.printf("Writing file: %s\n", path);
   File file = fs.open(path, FILE_WRITE);
-  if (!file) { Serial.println("  -> open for write FAILED"); return; }
+  if (!file) {
+    Serial.println("  -> open for write FAILED");
+    return;
+  }
   file.print(message) ? Serial.println("  -> write OK")
                       : Serial.println("  -> write FAILED");
   file.close();
@@ -68,7 +71,10 @@ void writeFile(fs::FS &fs, const char *path, const char *message) {
 void appendFile(fs::FS &fs, const char *path, const char *message) {
   Serial.printf("Appending to file: %s\n", path);
   File file = fs.open(path, FILE_APPEND);
-  if (!file) { Serial.println("  -> open for append FAILED"); return; }
+  if (!file) {
+    Serial.println("  -> open for append FAILED");
+    return;
+  }
   file.print(message) ? Serial.println("  -> append OK")
                       : Serial.println("  -> append FAILED");
   file.close();
@@ -77,7 +83,10 @@ void appendFile(fs::FS &fs, const char *path, const char *message) {
 void readFile(fs::FS &fs, const char *path) {
   Serial.printf("Reading file: %s\n", path);
   File file = fs.open(path);
-  if (!file) { Serial.println("  -> open for read FAILED"); return; }
+  if (!file) {
+    Serial.println("  -> open for read FAILED");
+    return;
+  }
   Serial.print("  -> contents: \"");
   while (file.available()) Serial.write(file.read());
   Serial.println("\"");
@@ -99,15 +108,15 @@ void readFile(fs::FS &fs, const char *path) {
 //                            (GUID/exFAT/no-MBR), or a marginal link returning
 //                            bad data
 void diagnoseSDFailure() {
-  uint8_t pdrv = sdcard_init(SD_CS, &SD_SPI, 400000);   // slow, robust init
+  uint8_t pdrv = sdcard_init(SD_CS, &SD_SPI, 400000);  // slow, robust init
   if (pdrv == 0xFF) {
     Serial.println("[SD] Internal: no free SD slot (unexpected).");
     return;
   }
 
   static FATFS s_diagfs;
-  char drv[3] = {(char)('0' + pdrv), ':', 0};
-  FRESULT fr = f_mount(&s_diagfs, drv, 1);   // 1 = mount immediately
+  char drv[3] = { (char)('0' + pdrv), ':', 0 };
+  FRESULT fr = f_mount(&s_diagfs, drv, 1);  // 1 = mount immediately
   Serial.printf("[SD] f_mount result = %d  (0=OK 1=DISK_ERR 3=NOT_READY 13=NO_FILESYSTEM)\n",
                 (int)fr);
 
@@ -124,7 +133,7 @@ void diagnoseSDFailure() {
     Serial.println("[SD] Card responds but reads FAIL (disk error) -> marginal card or");
     Serial.println("     slot/wiring, NOT a format problem. Reseat, clean the contacts,");
     Serial.println("     try a shorter/known-good cable, or another card.");
-  } else {   // FR_NO_FILESYSTEM and anything else
+  } else {  // FR_NO_FILESYSTEM and anything else
     Serial.println("[SD] Card read OK but no valid filesystem -> WRONG FORMAT.");
     Serial.println("     -> The ESP32 needs FAT32 on an MBR (Master Boot");
     Serial.println("        Record) partition table.");
@@ -143,7 +152,7 @@ void diagnoseSDFailure() {
     Serial.println("*** UNPLUG THE BOARD from the computer to avoid damaging the card ***");
   }
 
-  f_mount(NULL, drv, 0);     // release the probe mount
+  f_mount(NULL, drv, 0);  // release the probe mount
   sdcard_uninit(pdrv);
 }
 
@@ -155,17 +164,17 @@ void diagnoseSDFailure() {
 // marginal. If a slower clock mounts, the filesystem was fine all along -- the
 // problem was signal integrity, not the format.
 bool initSDCard() {
-  const uint32_t kSpeeds[] = {4000000, 1000000, 400000};
+  const uint32_t kSpeeds[] = { 4000000, 1000000, 400000 };
   for (uint8_t i = 0; i < sizeof(kSpeeds) / sizeof(kSpeeds[0]); i++) {
-    if (SD.begin(SD_CS, SD_SPI, kSpeeds[i])) {   // format_if_empty defaults to false
+    if (SD.begin(SD_CS, SD_SPI, kSpeeds[i])) {  // format_if_empty defaults to false
       uint8_t t = SD.cardType();
-      const char *typeStr = (t == CARD_MMC)  ? "MMC"  :
-                            (t == CARD_SD)   ? "SDSC" :
-                            (t == CARD_SDHC) ? "SDHC" : "UNKNOWN";
+      const char *typeStr = (t == CARD_MMC) ? "MMC" : (t == CARD_SD)   ? "SDSC"
+                                                    : (t == CARD_SDHC) ? "SDHC"
+                                                                       : "UNKNOWN";
       Serial.printf("[SD] Mounted OK at %lu Hz. Type %s, size %llu MB, used %llu / %llu MB\n",
                     (unsigned long)kSpeeds[i], typeStr,
-                    SD.cardSize()  / (1024ULL * 1024ULL),
-                    SD.usedBytes()  / (1024ULL * 1024ULL),
+                    SD.cardSize() / (1024ULL * 1024ULL),
+                    SD.usedBytes() / (1024ULL * 1024ULL),
                     SD.totalBytes() / (1024ULL * 1024ULL));
       if (i > 0) Serial.println("     (needed a slower clock -> check wiring/cable/card)");
       return true;
@@ -178,7 +187,7 @@ bool initSDCard() {
 
 // ---- setup / loop --------------------------------------------------------
 
-bool g_mounted = false;        // set once in setup()
+bool g_mounted = false;  // set once in setup()
 
 // The read/write portion of the test -- run repeatedly; reuses the mount.
 void runFileTest() {
@@ -192,7 +201,7 @@ void runFileTest() {
 
 void setup() {
   Serial.begin(115200);
-  delay(1500);                 // let the UART settle after reset
+  delay(1500);  // let the UART settle after reset
   Serial.println("\n=== HT-HC33 SD card test ===");
 
   // Bring up SPI and mount the card EXACTLY ONCE, here. Re-mounting from
@@ -205,7 +214,7 @@ void setup() {
 
 void loop() {
   if (g_mounted) {
-    runFileTest();             // re-run the read/write test (no re-mount)
+    runFileTest();  // re-run the read/write test (no re-mount)
   } else {
     Serial.println("[SD] Not mounted -- see the reason above. Fix the card, then");
     Serial.println("     power-cycle the board (unplug/replug) to retry.");
