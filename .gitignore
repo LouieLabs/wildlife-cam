@@ -10,3 +10,6 @@ build/
 *.hex
 *.map
 **/.DS_Store
+
+# Local scratch / temp
+tmp/
