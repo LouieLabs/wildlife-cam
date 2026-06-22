@@ -117,3 +117,8 @@ treat low-confidence boxes with suspicion.
 - Recording (browser or `record.py`) runs only while your device is open and on
   the **same network** as the camera.
 - The HaLow core lacks `tm_gmtoff`; the sketch computes the UTC offset manually.
+- **Build toolchain: Arduino IDE + Heltec "ESP32 HaLow" core** (`heltec:esp_halow`),
+  not PlatformIO. A `platformio.ini` exists but is **parked/experimental** —
+  PlatformIO has no HT-HC33 board definition and its standard arduino-esp32 core
+  lacks Heltec's HaLow stack (no Wi-Fi HaLow APIs, no `halow_SD.h`). See the
+  header comment in `platformio.ini` for the full caveats and how to revive it.
