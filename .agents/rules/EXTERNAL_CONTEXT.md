@@ -1,8 +1,15 @@
 # Antigravity Context Anchor: Authorized Manufacturer References
 
-Whenever the user prompts for embedded firmware changes, camera configuration routines, or sub-GHz network tasks involving our deployment hardware, you MUST consult these authorized live repository targets to cross-reference current implementation paradigms, AT command lists, and pin registers. 
+These are the authoritative vendor sources for our deployment hardware. **Consult
+them only when you actually need vendor-specific detail** — i.e. when you are
+uncertain, or when the task depends on HaLow radio APIs, AT commands, camera/I2C
+register assignments, or exact pin mappings. **Do not fetch them for every firmware
+prompt:** skip the lookup for routine code (GPIO toggling, SD/file I/O, general
+Arduino logic) where you are already confident.
 
-Do not hallucinate standard Arduino WiFi methods; use the explicit vendor implementations found at these live paths:
+When you do rely on a vendor-specific behavior, prefer these explicit
+implementations over guessed or generic Arduino WiFi methods, and cite the source
+you used:
 
 ## 1. Heltec HT-HC33 (ESP32-S3 Wi-Fi HaLow Framework)
 * **Primary Framework Repository:** `https://github.com/HelTecAutomation/ESP_HaLow`
