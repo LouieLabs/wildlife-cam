@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import AuthControl from './AuthControl';
 
 export default function Home() {
   return (
@@ -8,8 +9,8 @@ export default function Home() {
       <ul style={{ lineHeight: 2 }}>
         <li><Link href="/dashboard">Live dashboard</Link></li>
         <li><Link href="/register">Register a new camera</Link></li>
-        <li><Link href="/login">Sign in</Link></li>
       </ul>
+      <AuthControl />
     </main>
   );
 }
