@@ -12,10 +12,15 @@
 // Realtime Database host -- no "https://", no trailing slash.
 #define RTDB_HOST        "louielabs-animal-cams-default-rtdb.firebaseio.com"
 
-// Base URL of the web app (used later for photo upload links). While testing
-// against `npm run dev`, this is your computer's address on the LAN, e.g.
-// "http://192.168.1.50:3000". Not used yet by this status-only node.
-#define BACKEND_BASE_URL "http://YOUR_DEV_MACHINE:3000"
+// Base URL of the web app (for photo upload links). While testing against
+// `npm run dev`, this is your computer's LAN address (NOT localhost). Update if
+// your computer's IP changes -- Next prints a "Network:" URL on startup.
+#define BACKEND_BASE_URL "http://192.168.1.26:3000"
+
+// Basic telemetry test: on every wake, capture a photo, save it to the SD card,
+// wait 5 s, then upload it to the cloud. Set to 0 to go back to status-only.
+#define DO_CAPTURE_CYCLE   1
+#define CAPTURE_WAIT_MS    5000
 
 // --- Duty cycle -------------------------------------------------------------
 // The board wakes, reports ONCE, then deep-sleeps this many seconds. Because

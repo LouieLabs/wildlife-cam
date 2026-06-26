@@ -22,9 +22,12 @@
 #include "secrets.h"
 #include "cloud_backend.h"
 #include "camera_capture.h"
+#include "sd_store.h"
 
 // Survives deep sleep (kept in RTC memory) so we can count wake-ups in the log.
 RTC_DATA_ATTR uint32_t bootCount = 0;
+// Fallback photo filename counter when the clock isn't NTP-synced yet.
+RTC_DATA_ATTR uint32_t captureSeq = 0;
 
 static void goToDeepSleep(uint32_t seconds) {
   Serial.printf("[sleep] deep sleep for %u s (the chip resets on wake)\n", seconds);
@@ -64,6 +67,39 @@ static void doTakePicture() {
   cameraDeinit();   // power the camera back down before we sleep
 }
 
+// Basic telemetry test (no PIR yet): capture a photo, SAVE IT TO SD, wait 5 s,
+// then upload that saved file to the cloud. The 5 s stands in for the future
+// "wait for a lull" step. The photo stays on SD so it's never lost.
+static void captureSaveWaitUpload() {
+  Serial.println("[cycle] capture -> SD -> wait -> upload");
+  if (!cameraInit()) { Serial.println("[cam] init failed"); return; }
+
+  camera_fb_t *fb = cameraCapture();
+  if (!fb) { Serial.println("[cam] capture failed"); cameraDeinit(); return; }
+  Serial.printf("[cam] captured %u bytes\n", (unsigned)fb->len);
+
+  long epoch = getEpochSeconds();
+  long long tsMs = epoch ? (long long)epoch * 1000LL : 0LL;
+  String path = sdSaveJpeg(fb->buf, fb->len, tsMs, ++captureSeq);
+  cameraReturn(fb);
+  cameraDeinit();   // done with the camera; save power during the wait + upload
+  if (!path.length()) { Serial.println("[sd] save failed -> skip upload"); return; }
+
+  Serial.printf("[cycle] waiting %d ms before upload...\n", CAPTURE_WAIT_MS);
+  delay(CAPTURE_WAIT_MS);
+
+  String objectName;
+  String signedUrl = requestUploadUrl(objectName);
+  if (!signedUrl.length()) { Serial.println("[upload] no signed URL"); return; }
+
+  File f = sdOpen(path);
+  if (!f) { Serial.println("[sd] reopen for upload failed"); return; }
+  bool ok = uploadStream(signedUrl, f, f.size());
+  f.close();
+  Serial.printf("[upload] %s\n", ok ? "uploaded from SD ✓" : "FAILED");
+  if (ok) captureComplete(objectName);
+}
+
 void setup() {
   Serial.begin(115200);
   delay(300);
@@ -85,6 +121,12 @@ void setup() {
   int battery = readBatteryPercent();
   bool ok = reportStatus("online", battery, updatedAt);
   Serial.printf("[report] %s  (battery %d%%)\n", ok ? "SENT ✓" : "FAILED", battery);
+
+#if DO_CAPTURE_CYCLE
+  // 2.5) Basic telemetry test: capture -> save to SD -> wait 5 s -> upload.
+  if (sdInit()) captureSaveWaitUpload();
+  else Serial.println("[sd] init failed -> skipping capture cycle");
+#endif
 
   // 3) Check for a pending command from the dashboard.
   String cmd = getCommand();

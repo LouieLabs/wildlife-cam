@@ -35,6 +35,10 @@ String requestUploadUrl(String &objectNameOut);
 // PUT the JPEG bytes to the signed upload URL. Returns true on HTTP 200.
 bool uploadJpeg(const String &signedUrl, const uint8_t *data, size_t len);
 
+// PUT a JPEG straight from a stream (e.g. an open SD File) -- avoids loading the
+// whole photo into RAM. len must be the exact byte count. Returns true on 200.
+bool uploadStream(const String &signedUrl, Stream &stream, size_t len);
+
 // Tell the backend the photo is uploaded: it clears the command and records the
 // capture. Returns true on HTTP 200.
 bool captureComplete(const String &objectName);

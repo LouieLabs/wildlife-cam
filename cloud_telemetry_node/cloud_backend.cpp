@@ -168,6 +168,18 @@ bool uploadJpeg(const String &signedUrl, const uint8_t *data, size_t len) {
   return code == 200;
 }
 
+bool uploadStream(const String &signedUrl, Stream &stream, size_t len) {
+  WiFiClientSecure client;
+  client.setInsecure();   // skip cert check (testing); see README
+  HTTPClient https;
+  if (!https.begin(client, signedUrl)) return false;
+  https.addHeader("Content-Type", "image/jpeg");
+  int code = https.sendRequest("PUT", &stream, len);
+  https.end();
+  if (code != 200) Serial.printf("[upload] PUT(stream) HTTP %d\n", code);
+  return code == 200;
+}
+
 bool captureComplete(const String &objectName) {
   WiFiClient client;
   HTTPClient http;

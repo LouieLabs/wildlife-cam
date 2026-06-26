@@ -35,6 +35,11 @@ telemetry. They can't run at the same time.
   PUT the JPEG to the signed link → `POST /api/capture-complete`, which clears
   the command and records the capture in Firestore. The dashboard then shows the
   photo (it mints a short-lived view link, since the bucket is private).
+- **Basic SD test cycle** (`DO_CAPTURE_CYCLE=1` in `node_config.h`): every wake the
+  board captures a photo, **saves it to the SD card** (`/wildcam`), waits 5 s, then
+  uploads that saved file from SD (stand-in for the future PIR + "wait for a lull"
+  flow). The photo stays on the card so it's never lost. Set to `0` for
+  status-only.
 
 > Set `BACKEND_BASE_URL` in `node_config.h` to where the web app is reachable
 > from the board. While testing against `npm run dev`, that's your computer's
