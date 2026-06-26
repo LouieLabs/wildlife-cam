@@ -114,7 +114,7 @@ export default function DashboardPage() {
       ) : (
         <div style={{ display: 'grid', gap: 12 }}>
           {devices.map((d) => (
-            <div key={d.deviceId} style={{ padding: 12, background: '#1e293b', borderRadius: 8 }}>
+            <div key={d.deviceId} style={{ padding: 12, background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 8 }}>
               <b>{d.deviceId}</b> — {d.status === 'online' ? '🟢 online' : '⚪ ' + d.status}
               <div>Battery: {d.battery ?? '—'}%</div>
               <div style={{ fontSize: 12, opacity: 0.7 }}>MAC: {d.mac ?? '—'}</div>
@@ -133,7 +133,7 @@ export default function DashboardPage() {
       ) : (
         <div style={{ display: 'grid', gap: 12 }}>
           {detections.map((det) => (
-            <div key={det.id} style={{ padding: 12, background: '#1e293b', borderRadius: 8 }}>
+            <div key={det.id} style={{ padding: 12, background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 8 }}>
               <b>{det.deviceId}</b>{' '}
               <span style={{ fontSize: 12, opacity: 0.7 }}>
                 {new Date(det.capturedAt).toLocaleString()}
@@ -153,7 +153,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <hr style={{ margin: '24px 0', borderColor: '#334155' }} />
+      <hr style={{ margin: '24px 0', border: 'none', borderTop: '1px solid #e2e8f0' }} />
       <h2 style={{ fontSize: 18 }}>Recover a device secret</h2>
       <form onSubmit={lookupSecretFor}>
         <input value={lookupId} onChange={(e) => setLookupId(e.target.value)} placeholder="pond_cam_01" />

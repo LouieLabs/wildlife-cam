@@ -12,14 +12,15 @@ bool wifiConnect(uint32_t timeoutMs = 15000);
 // is set in node_config.h.
 int readBatteryPercent();
 
-// One quick NTP time sync. Returns epoch seconds, or 0 if it couldn't sync in
-// time (we still report; the timestamp just won't be wall-clock accurate).
-long getEpochSeconds(uint32_t timeoutMs = 3000);
+// One NTP time sync. Returns epoch seconds, or 0 if it couldn't sync in time
+// (we still report; the timestamp just won't be wall-clock accurate).
+long getEpochSeconds(uint32_t timeoutMs = 8000);
 
 // Write this device's status to /devices/<id>/state in the Realtime Database.
 // The payload includes the device secret so the database rule accepts it.
+// updatedAt is epoch MILLISECONDS (64-bit -- it overflows a 32-bit int).
 // Returns true on HTTP 200.
-bool reportStatus(const char *status, int batteryPct, long updatedAt);
+bool reportStatus(const char *status, int batteryPct, long long updatedAt);
 
 // Read this device's pending command from /devices/<id>/command (public read).
 // Returns e.g. "take_picture" / "idle", or "" on error.

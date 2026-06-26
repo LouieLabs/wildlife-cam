@@ -79,8 +79,9 @@ void setup() {
 
   // 2) Report status to the Realtime Database.
   long epoch = getEpochSeconds();                 // 0 if NTP didn't sync in time
-  long updatedAt = epoch ? epoch * 1000L          // epoch milliseconds when known
-                         : (long)bootCount;        // otherwise a simple counter
+  // epoch ms needs 64 bits -- (long)epoch*1000 overflows 32-bit and gave a
+  // garbage timestamp. Use 0 when the clock isn't real yet.
+  long long updatedAt = epoch ? (long long)epoch * 1000LL : 0LL;
   int battery = readBatteryPercent();
   bool ok = reportStatus("online", battery, updatedAt);
   Serial.printf("[report] %s  (battery %d%%)\n", ok ? "SENT ✓" : "FAILED", battery);

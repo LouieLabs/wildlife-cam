@@ -50,28 +50,32 @@ int readBatteryPercent() {
 // ---------------------------------------------------------------------------
 long getEpochSeconds(uint32_t timeoutMs) {
   configTime(0, 0, "pool.ntp.org", "time.nist.gov");
-  uint32_t start = millis();
-  time_t now = 0;
-  while (millis() - start < timeoutMs) {
-    now = time(nullptr);
-    if (now > 1700000000) return (long)now;   // looks like a real 2023+ epoch
-    delay(150);
+  // getLocalTime() blocks until the clock holds a real date (year >= 2016) or
+  // the timeout elapses -- more reliable than polling time() ourselves.
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo, timeoutMs)) {
+    Serial.println("[ntp] sync failed (will report without a real timestamp)");
+    return 0;
   }
-  return 0;   // couldn't sync in time
+  return (long)time(nullptr);   // epoch seconds (fits in 32 bits until 2038)
 }
 
 // ---------------------------------------------------------------------------
 // Status report: HTTPS PUT to /devices/<id>/state.json
 // ---------------------------------------------------------------------------
-bool reportStatus(const char *status, int batteryPct, long updatedAt) {
+bool reportStatus(const char *status, int batteryPct, long long updatedAt) {
   String url = String("https://") + RTDB_HOST + "/devices/" + DEVICE_ID + "/state.json";
+
+  // updatedAt is 64-bit (epoch ms), so format it with %lld to avoid overflow.
+  char ts[24];
+  snprintf(ts, sizeof(ts), "%lld", updatedAt);
 
   // Build the JSON body. The secret is what the database rule checks.
   String body = "{";
   body += "\"status\":\"" + String(status) + "\",";
   body += "\"battery\":" + String(batteryPct) + ",";
   body += "\"secret\":\"" + String(DEVICE_SECRET) + "\",";
-  body += "\"updatedAt\":" + String(updatedAt);
+  body += "\"updatedAt\":" + String(ts);
   body += "}";
 
   WiFiClientSecure client;

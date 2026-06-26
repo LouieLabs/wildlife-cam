@@ -63,7 +63,7 @@ export default function RegisterPage() {
       {error && <p style={{ color: '#f87171' }}>{error}</p>}
 
       {result && (
-        <div style={{ marginTop: 16, padding: 12, background: '#1e293b', borderRadius: 8 }}>
+        <div style={{ marginTop: 16, padding: 12, background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 8 }}>
           <p>✅ Registered! Flash this secret into the camera firmware:</p>
           <p style={{ fontSize: 28, fontFamily: 'monospace', letterSpacing: 2 }}>{result.secret}</p>
           <p style={{ fontSize: 12, opacity: 0.8 }}>
