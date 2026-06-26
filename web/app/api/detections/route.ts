@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { Storage } from '@google-cloud/storage';
 import { adminFirestore } from '@/lib/firebaseAdmin';
 import { requireLouieLabsUser, HttpError } from '@/lib/requireLouieLabsUser';
 import { timingSafeEqual } from 'crypto';
@@ -6,6 +7,8 @@ import { timingSafeEqual } from 'crypto';
 export const runtime = 'nodejs';
 
 const COLLECTION = 'wildlife_detections';
+const storage = new Storage({ projectId: process.env.GCP_PROJECT_ID });
+const BUCKET = process.env.GCLOUD_STORAGE_BUCKET || 'wildlife-camera-telemetry';
 
 function safeEqual(a: string, b: string): boolean {
   const ab = Buffer.from(a);
@@ -15,6 +18,8 @@ function safeEqual(a: string, b: string): boolean {
 }
 
 // GET: dashboard reads recent detections (signed-in Louie Labs user only).
+// The bucket is private, so for each record we mint a short-lived signed READ
+// URL from its objectPath -- that's what the browser can actually open.
 export async function GET(req: NextRequest) {
   try {
     await requireLouieLabsUser(req);
@@ -25,7 +30,29 @@ export async function GET(req: NextRequest) {
       .limit(50)
       .get();
 
-    const detections = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const detections = await Promise.all(
+      snap.docs.map(async (d) => {
+        const data = d.data() as any;
+        let imageUrl: string | null = null;
+        if (data.objectPath) {
+          try {
+            const [url] = await storage
+              .bucket(BUCKET)
+              .file(data.objectPath)
+              .getSignedUrl({
+                version: 'v4',
+                action: 'read',
+                expires: Date.now() + 5 * 60 * 1000,
+              });
+            imageUrl = url;
+          } catch {
+            imageUrl = null;
+          }
+        }
+        return { id: d.id, ...data, imageUrl };
+      })
+    );
+
     return NextResponse.json({ detections });
   } catch (err) {
     if (err instanceof HttpError) {
@@ -35,10 +62,9 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// POST: the detection pipeline (after a photo is uploaded and analyzed by
-// Gemini) records a result. Protected by the shared CAMERA_API_KEY so only our
-// trusted backend can write. Body shape:
-//   { deviceId, imageUrl, capturedAt, detections: [{label, confidence, box:[x,y,w,h]}] }
+// POST: the Gemini detection pipeline records analysis results. Protected by the
+// shared CAMERA_API_KEY so only our trusted backend can write. Body:
+//   { deviceId, objectPath, capturedAt, detections: [{label, confidence, box:[x,y,w,h]}] }
 export async function POST(req: NextRequest) {
   const apiKey = req.headers.get('x-camera-api-key') || '';
   const expected = process.env.CAMERA_API_KEY || '';
@@ -53,15 +79,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid device ID' }, { status: 400 });
     }
 
-    const doc = {
+    const ref = await adminFirestore.collection(COLLECTION).add({
       deviceId,
-      imageUrl: typeof body.imageUrl === 'string' ? body.imageUrl : null,
+      objectPath: typeof body.objectPath === 'string' ? body.objectPath : null,
       capturedAt: typeof body.capturedAt === 'number' ? body.capturedAt : Date.now(),
       detections: Array.isArray(body.detections) ? body.detections : [],
+      analyzed: true,
       createdAt: Date.now(),
-    };
-
-    const ref = await adminFirestore.collection(COLLECTION).add(doc);
+    });
     return NextResponse.json({ id: ref.id });
   } catch (err) {
     return NextResponse.json({ error: 'Internal error' }, { status: 500 });

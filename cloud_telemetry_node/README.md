@@ -31,14 +31,22 @@ telemetry. They can't run at the same time.
   `{status, battery, secret, updatedAt}`. The database rule accepts it only
   because the secret matches the registry.
 - **Command:** HTTPS `GET` of `…/devices/<id>/command.json` (public-read).
+- **Photo (on `take_picture`):** `POST /api/get-upload-url` (with the API key) →
+  PUT the JPEG to the signed link → `POST /api/capture-complete`, which clears
+  the command and records the capture in Firestore. The dashboard then shows the
+  photo (it mints a short-lived view link, since the bucket is private).
+
+> Set `BACKEND_BASE_URL` in `node_config.h` to where the web app is reachable
+> from the board. While testing against `npm run dev`, that's your computer's
+> **LAN address**, e.g. `http://192.168.1.50:3000` (Next prints a "Network:" URL
+> on startup) — `localhost` won't work from the board.
 
 ## Known limitations / honest notes
 - **TLS check is skipped** (`setInsecure()`) to keep testing simple. Fine on your
   own network; revisit before any real deployment.
-- **`take_picture` isn't acted on yet.** The node only *logs* the command. Doing
-  the real capture+upload conflicts with deep-sleep timing, needs the camera
-  powered, and needs the backend to clear the command afterward (the device
-  can't clear it itself, by rule design). That's the next piece of work.
+- **Gemini analysis isn't wired yet.** A capture is recorded with an empty
+  `detections` array (`analyzed: false`); a later Gemini step fills in the
+  bounding boxes via `POST /api/detections`. That's the next piece.
 - **Battery % is a stub** (`100`) until you tell me the battery sense pin /
   divider in `node_config.h`.
 - **Commands are delayed** by up to one sleep cycle, since the board is asleep

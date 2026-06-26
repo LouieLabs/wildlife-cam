@@ -112,3 +112,70 @@ String getCommand() {
   }
   return raw;
 }
+
+// ---------------------------------------------------------------------------
+// Photo upload flow
+// ---------------------------------------------------------------------------
+
+// Tiny extractor for a "key":"value" string field in a flat JSON response.
+// (Good enough for our known, simple responses -- avoids pulling in a JSON lib.)
+static String jsonStringField(const String &json, const char *key) {
+  String needle = String("\"") + key + "\":\"";
+  int i = json.indexOf(needle);
+  if (i < 0) return "";
+  i += needle.length();
+  int j = json.indexOf('"', i);
+  if (j < 0) return "";
+  return json.substring(i, j);
+}
+
+String requestUploadUrl(String &objectNameOut) {
+  // Backend (the web app) is plain HTTP during testing -> WiFiClient.
+  WiFiClient client;
+  HTTPClient http;
+  String url = String(BACKEND_BASE_URL) + "/api/get-upload-url";
+  if (!http.begin(client, url)) return "";
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("x-camera-api-key", CAMERA_API_KEY);
+
+  String reqBody = String("{\"deviceId\":\"") + DEVICE_ID + "\"}";
+  int code = http.POST(reqBody);
+  String resp = (code == 200) ? http.getString() : "";
+  http.end();
+  if (code != 200) {
+    Serial.printf("[upload] get-upload-url HTTP %d\n", code);
+    return "";
+  }
+  objectNameOut = jsonStringField(resp, "objectName");
+  return jsonStringField(resp, "uploadUrl");
+}
+
+bool uploadJpeg(const String &signedUrl, const uint8_t *data, size_t len) {
+  // The signed URL points at storage.googleapis.com -> HTTPS.
+  WiFiClientSecure client;
+  client.setInsecure();   // skip cert check (testing); see README
+  HTTPClient https;
+  if (!https.begin(client, signedUrl)) return false;
+  // Content-Type MUST match what the URL was signed with (image/jpeg).
+  https.addHeader("Content-Type", "image/jpeg");
+  int code = https.sendRequest("PUT", (uint8_t *)data, len);
+  https.end();
+  if (code != 200) Serial.printf("[upload] PUT HTTP %d\n", code);
+  return code == 200;
+}
+
+bool captureComplete(const String &objectName) {
+  WiFiClient client;
+  HTTPClient http;
+  String url = String(BACKEND_BASE_URL) + "/api/capture-complete";
+  if (!http.begin(client, url)) return false;
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("x-camera-api-key", CAMERA_API_KEY);
+
+  String body = String("{\"deviceId\":\"") + DEVICE_ID +
+                "\",\"objectPath\":\"" + objectName + "\"}";
+  int code = http.POST(body);
+  http.end();
+  if (code != 200) Serial.printf("[complete] capture-complete HTTP %d\n", code);
+  return code == 200;
+}

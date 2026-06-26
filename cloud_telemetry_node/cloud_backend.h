@@ -24,3 +24,16 @@ bool reportStatus(const char *status, int batteryPct, long updatedAt);
 // Read this device's pending command from /devices/<id>/command (public read).
 // Returns e.g. "take_picture" / "idle", or "" on error.
 String getCommand();
+
+// --- Photo upload flow (used when the command is "take_picture") ------------
+
+// Ask the web app for a short-lived signed upload link. On success returns the
+// upload URL and fills objectNameOut with the storage path; "" on failure.
+String requestUploadUrl(String &objectNameOut);
+
+// PUT the JPEG bytes to the signed upload URL. Returns true on HTTP 200.
+bool uploadJpeg(const String &signedUrl, const uint8_t *data, size_t len);
+
+// Tell the backend the photo is uploaded: it clears the command and records the
+// capture. Returns true on HTTP 200.
+bool captureComplete(const String &objectName);

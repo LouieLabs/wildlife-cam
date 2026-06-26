@@ -21,6 +21,7 @@
 #include "node_config.h"
 #include "secrets.h"
 #include "cloud_backend.h"
+#include "camera_capture.h"
 
 // Survives deep sleep (kept in RTC memory) so we can count wake-ups in the log.
 RTC_DATA_ATTR uint32_t bootCount = 0;
@@ -40,6 +41,28 @@ static void goToDeepSleep(uint32_t seconds) {
   esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_OFF);
   esp_sleep_enable_timer_wakeup((uint64_t)seconds * 1000000ULL);
   esp_deep_sleep_start();   // <-- never returns; board reboots into setup() on wake
+}
+
+// Power up the camera, grab one JPEG, upload it via a signed link, then tell
+// the backend (which clears the command and records the capture).
+static void doTakePicture() {
+  Serial.println("[command] take_picture -> capturing");
+  if (!cameraInit()) return;
+
+  camera_fb_t *fb = cameraCapture();
+  if (fb) {
+    Serial.printf("[cam] captured %u bytes\n", (unsigned)fb->len);
+    String objectName;
+    String signedUrl = requestUploadUrl(objectName);
+    if (signedUrl.length() && uploadJpeg(signedUrl, fb->buf, fb->len)) {
+      Serial.println("[upload] photo uploaded ✓");
+      if (captureComplete(objectName)) Serial.println("[command] cleared by backend ✓");
+    }
+    cameraReturn(fb);
+  } else {
+    Serial.println("[cam] capture failed");
+  }
+  cameraDeinit();   // power the camera back down before we sleep
 }
 
 void setup() {
@@ -67,11 +90,7 @@ void setup() {
   String cmd = getCommand();
   Serial.printf("[command] pending = %s\n", cmd.c_str());
   if (cmd == "take_picture") {
-    Serial.println("[command] take_picture seen -- camera capture + upload is a");
-    Serial.println("          follow-up (needs the camera powered; see README).");
-    // NOTE: the device cannot clear its own command (database rules), and it is
-    // asleep most of the time, so the full photo flow needs a small backend
-    // tweak first. Left out on purpose to keep this testing node lightweight.
+    doTakePicture();
   }
 
   // 4) Back to sleep.
