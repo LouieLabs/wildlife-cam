@@ -97,16 +97,22 @@ unsigned long g_lastSdTry = 0;// last remount attempt (loop retries until a card
 //   battery-voltage sense pin, so while the PIR is wired here you can't ALSO use
 //   this pin to measure battery level (this firmware doesn't, so no loss today).
 //   If you ever want battery monitoring back, move the PIR to GPIO 41 (J2 pin 10).
-#define PIR_PIN          1
+//   STUCK-HIGH TROUBLESHOOTING: if /motion's counter keeps climbing with nobody
+//   moving (sensor settled, >1 min after boot), the input is reading HIGH on its
+//   own. Unplug the sensor's OUT wire and watch /motion: if it STILL climbs, it's
+//   this pin (GPIO 1 doubles as the battery-sense node) -> set this to 41 and move
+//   the wire. If it STOPS, it's the sensor (warm-up, sensitivity too high, jumper).
+#define PIR_PIN          41
 #define PIR_WARMUP_MS    60000UL   // SR501 needs ~1 min after power-on to settle
-#define PIR_INTERVAL_MS  500UL     // min gap between motion photos (your 0.5 s)
+#define PIR_REARM_MS     3000UL    // line must be LOW (quiet) this long before a NEW motion counts
 bool          g_pir_enabled  = true;   // master on/off for motion capture
-unsigned long g_pir_lastShot = 0;      // millis() of the last motion photo
+unsigned long g_pir_lowSince = 0;      // millis() the line last went LOW (re-arm timer)
 bool          g_pir_warned   = false;  // printed the "warming up" note yet?
 // Bumps once per motion event. The open web page polls /motion and, when this
 // number goes up, presses Snapshot for you (saving to the computer). volatile is
 // enough: 32-bit, written only by loop(), read only by the web handler.
 volatile uint32_t g_motion_seq = 0;
+int g_pir_prev = LOW;                   // last PIR level, for edge (LOW->HIGH) detection
 
 // Guards the single camera frame buffer. The live-stream task and a motion
 // capture (or web Snapshot) can otherwise grab the one buffer at the same moment
@@ -1334,22 +1340,32 @@ void loop() {
   }
 
   // ---- Motion detection (HC-SR501 on PIR_PIN) ----
-  // We don't save here — we just bump a counter (max once per PIR_INTERVAL_MS).
-  // The open web page polls /motion and, when the counter rises, presses Snapshot
-  // for you (which saves to the computer per the green/red Save-mode switch).
-  // The sensor needs ~1 min after power-on to settle, so ignore it until then.
+  // A motion event = the line goes LOW->HIGH after it has been LOW (quiet) for at
+  // least PIR_REARM_MS. Edge-triggered AND re-arm gated, so:
+  //   * a line stuck/held HIGH never repeats (there is no new edge), and
+  //   * a sensor that re-pulses every ~second on a persistent warm object (common
+  //     in single-trigger 'L' mode) does NOT keep registering — the brief LOW gaps
+  //     between its pulses are shorter than the re-arm window, so they're ignored.
+  // You only get a fresh event after a genuine quiet gap = real new motion.
   if (g_pir_enabled) {
     if (millis() < PIR_WARMUP_MS) {
       if (!g_pir_warned) {
         Serial.println("[PIR] warming up — ignoring motion until the sensor settles");
         g_pir_warned = true;
       }
-    } else if (digitalRead(PIR_PIN) == HIGH &&
-               (millis() - g_pir_lastShot) >= PIR_INTERVAL_MS) {
-      g_pir_lastShot = millis();
-      g_motion_seq++;
-      Serial.printf("[PIR] motion #%lu — telling the open web page to snapshot\n",
-                    (unsigned long)g_motion_seq);
+      g_pir_prev = digitalRead(PIR_PIN);   // track level; treat the whole warm-up as "quiet"
+      g_pir_lowSince = millis();
+    } else {
+      int level = digitalRead(PIR_PIN);
+      if (level == LOW) {
+        if (g_pir_prev == HIGH) g_pir_lowSince = millis();          // line just went quiet
+      } else { // HIGH
+        if (g_pir_prev == LOW && (millis() - g_pir_lowSince) >= PIR_REARM_MS) {
+          g_motion_seq++;
+          Serial.printf("[PIR] motion #%lu (new motion)\n", (unsigned long)g_motion_seq);
+        }
+      }
+      g_pir_prev = level;
     }
   }
 
