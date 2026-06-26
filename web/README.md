@@ -1,32 +1,46 @@
 # Louie Labs Wildlife Monitor — Web App
 
 Next.js (App Router) control panel for the backyard wildlife cameras. Handles
-keyless photo uploads to Google Cloud Storage, secure device registration, and a
-live dashboard. Region target: **`us-west1`**.
+keyless photo uploads to Google Cloud Storage, secure device registration, live
+device control, and an AI-detection feed.
 
 > **Plain-English summary.** This website lets a logged-in Louie Labs student add
-> a new camera, gives each camera a short random password, and shows a live page
-> of which cameras are online and their battery. Cameras upload photos using
-> short-lived "upload tickets" so they never hold any cloud keys.
+> a camera, hands each camera a short random password, shows which cameras are
+> online, lets you press "take a picture", and lists the animals the AI found.
+> Cameras upload photos using short-lived "upload tickets" so they never hold any
+> cloud keys.
 
 ---
 
-## How security works here (and how it differs from the first draft)
+## Hybrid database layout (by design)
 
-The original spec had three holes. Here's what we do instead:
+We use **two** Google databases, each for what it's best at:
 
-| Concern | First draft (insecure) | This app (secure) |
-| --- | --- | --- |
-| Who can register a device | Anyone who emails `camera-reg@` (the `From` line is spoofable) | A student signed in with a real **@louielabs.com Google account**; verified on the server |
-| The device "secret" | `louie_labs_7x29_` + the MAC (both guessable/public) | A **random 6-char** secret, generated server-side, unrelated to the MAC |
-| Database exposure | `".read": true` made *everything* (incl. secrets) world-readable | Database is **locked**; the dashboard reads through an authenticated server route; secrets never reach the browser |
+| Database | Region | Holds | Why |
+| --- | --- | --- | --- |
+| **Realtime Database** | us-central1¹ | `/devices/<id>/state` (status, battery), `/devices/<id>/command` (e.g. `take_picture`), `/pre_shared_keys`, `/device_meta` | Fast, tiny, easy for an MCU to poll |
+| **Firestore** (`wildlife-camera-telemetry-db`) | us-west1 | `wildlife_detections` (image URLs + Gemini bounding-box arrays) | Rich queries over structured detection records |
 
-**Known trade-off we chose on purpose:** secrets are stored in *clear text* (not
-hashed) so a student can recover one if they lose it. That's acceptable because
-the registry is never publicly readable and only reachable by a signed-in Louie
-Labs user. A 6-char secret is also short — fine for a low-stakes backyard project,
-but if you ever scale up, bump the length in `lib/secret.ts` and consider rate
-limiting writes.
+¹ **Realtime Database is not offered in us-west1** — Google only allows
+us-central1 / europe-west1 / asia-southeast1. So the live-state DB sits in
+us-central1 while the bucket and Firestore stay in us-west1. This is a Google
+limitation, not a choice.
+
+---
+
+## How security works
+
+| Concern | How it's handled |
+| --- | --- |
+| Who can register / command devices | A student signed in with a real **@louielabs.com Google account**, verified on the server (`requireLouieLabsUser`) |
+| Device secret | **Random 6-char** secret, server-generated, unrelated to the MAC. Stored in clear for recovery; never publicly readable |
+| Realtime Database | Locked. Devices may only WRITE `/devices/<id>/state` if their secret matches the registry. `/devices/<id>/command` is public-READ only (commands aren't secret). Everything else is closed |
+| Firestore | Fully locked to clients; all detection reads/writes go through authenticated server routes using the Admin SDK |
+| Cloud login | **Keyless** Application Default Credentials with service-account impersonation — no JSON key files anywhere |
+
+**Trade-off chosen on purpose:** the 6-char secret is short and stored in clear
+so students can recover it. Fine for a backyard project; bump `lib/secret.ts` and
+add write rate-limiting if you scale up.
 
 ---
 
@@ -35,21 +49,23 @@ limiting writes.
 ```
 web/
   app/
-    page.tsx                      landing page
     login/page.tsx                Louie Labs Google sign-in
     register/page.tsx             authenticated "add a camera" form
-    dashboard/page.tsx            live status + secret recovery
+    dashboard/page.tsx            live status, take-picture, detections, secret recovery
     api/
       get-upload-url/route.ts     camera -> 5-min v4 signed PUT URL (CAMERA_API_KEY)
-      register-device/route.ts    authed: mint + store random secret
-      devices/route.ts            authed: server-side read for the dashboard
-      device-secret/route.ts      authed: recover a lost secret
+      register-device/route.ts    authed: mint + store random secret (RTDB)
+      devices/route.ts            authed: read live device state (RTDB)
+      device-secret/route.ts      authed: recover a lost secret (RTDB)
+      command/route.ts            authed: set a device command e.g. take_picture (RTDB)
+      detections/route.ts         GET authed (dashboard) / POST pipeline (Firestore)
   lib/
-    firebaseAdmin.ts              keyless Admin SDK (ADC)
+    firebaseAdmin.ts              keyless Admin SDK -> RTDB + named Firestore
     firebaseClient.ts             browser Firebase (public web config)
     requireLouieLabsUser.ts       verify ID token + @louielabs.com domain
     secret.ts                     random 6-char secret generator
-  firebase-rules.json             locked-down Realtime Database rules
+  firebase-rules.json             locked Realtime Database rules
+  firestore.rules                 locked Firestore rules
   .env.local.example              copy to .env.local and fill in
 ```
 
@@ -57,50 +73,46 @@ web/
 
 ## Setup
 
-1. **Install** (from this `web/` folder):
-   ```bash
-   npm install
-   ```
-
-2. **Environment**: copy and fill in:
-   ```bash
-   cp .env.local.example .env.local
-   ```
-
-3. **Keyless Google Cloud login (ADC + impersonation, no JSON keys):**
+1. **Install** (from this `web/` folder): `npm install`
+2. **Env:** `cp .env.local.example .env.local` and confirm the values.
+3. **Keyless login (ADC + impersonation, no JSON keys):**
    ```bash
    gcloud auth application-default login \
-     --impersonate-service-account=wildlife-web@<PROJECT_ID>.iam.gserviceaccount.com
+     --impersonate-service-account=cloud-backend@louielabs-animal-cams.iam.gserviceaccount.com
    ```
-   The service account needs:
-   - **Storage Object Admin** (or narrower) on the `wildlife-camera-telemetry` bucket.
-   - **Service Account Token Creator** on *itself* — required so the Storage SDK
-     can sign v4 URLs over the IAM API without a private key file.
-   - **Firebase Realtime Database Admin** for the registry writes/reads.
-
-4. **Deploy the database rules** (locks the database):
+   The `cloud-backend` service account needs:
+   - **Storage Admin** on the bucket ✅ (already granted)
+   - **Service Account Token Creator on itself** ✅ (already granted — required to
+     sign v4 upload URLs without a key file)
+   - **Firebase Realtime Database Admin** — grant this once you create the RTDB
+   - **Cloud Datastore / Firestore access** ✅ (already has `datastore.owner`)
+4. **Create the Realtime Database** (it doesn't exist yet) in **us-central1**, then
+   confirm `FIREBASE_DATABASE_URL` matches its instance URL.
+5. **Deploy the rules:**
    ```bash
-   firebase deploy --only database
-   # or paste firebase-rules.json into Firebase Console -> Realtime Database -> Rules
+   firebase deploy --only database     # firebase-rules.json
+   firebase deploy --only firestore:rules   # firestore.rules
    ```
-
-5. **Run:**
-   ```bash
-   npm run dev
-   ```
+   (or paste each into the Firebase console). Installing the Firebase CLI:
+   `npm i -g firebase-tools` — it isn't installed yet.
+6. **Run:** `npm run dev`
 
 ---
 
-## Camera-side notes (firmware)
+## Camera-side data flow (firmware)
 
+- **Status (write):** node writes `devices/<id>/state` =
+  `{ status, battery, secret, updatedAt }`. The RTDB rule accepts it only if
+  `secret` matches the registry. Use the 6-char secret — **not** the MAC.
+- **Commands (read):** node polls `devices/<id>/command` (e.g. `take_picture`),
+  acts, then keeps reporting status. Only the signed-in dashboard can set a
+  command.
 - **Upload a photo:** `POST /api/get-upload-url` with header
-  `x-camera-api-key: <CAMERA_API_KEY>` and JSON `{ "deviceId": "pond_cam_01" }`.
-  You get back `{ uploadUrl }`; then HTTP **PUT** the JPEG bytes to that URL
-  within 5 minutes (`Content-Type: image/jpeg`).
-- **Telemetry write:** the node writes to `devices/<deviceId>` with
-  `{ status, battery, secret, updatedAt }`. The database rule accepts the write
-  only if `secret` matches the registry value. Use the 6-char secret from
-  registration — **not** the MAC.
+  `x-camera-api-key: <CAMERA_API_KEY>` and `{ "deviceId": "..." }`; then HTTP
+  **PUT** the JPEG to the returned URL within 5 minutes.
+- **Detections:** after a photo is uploaded and analyzed by Gemini, the backend
+  `POST /api/detections` (with `x-camera-api-key`) to record
+  `{ deviceId, imageUrl, capturedAt, detections:[{label,confidence,box}] }`.
 
 > Heads-up: GCS v4 signed URLs are time-limited, not literally single-use. The
 > 5-minute window + unique object name is the control here.

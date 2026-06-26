@@ -5,10 +5,9 @@ import { generateDeviceSecret } from '@/lib/secret';
 
 export const runtime = 'nodejs';
 
-// Authenticated device registration. Replaces the old email webhook entirely:
-// a signed-in Louie Labs student submits a device ID + MAC, and the SERVER
-// mints a random secret. The MAC is only an identifier here -- it is NOT the
-// secret.
+// Authenticated device registration. A signed-in Louie Labs student submits a
+// device ID + MAC, and the SERVER mints a random secret. The MAC is only an
+// identifier here -- it is NOT the secret.
 export async function POST(req: NextRequest) {
   try {
     const user = await requireLouieLabsUser(req);
@@ -29,15 +28,16 @@ export async function POST(req: NextRequest) {
 
     const secret = generateDeviceSecret(6);
 
-    // Stored in CLEAR (per project decision) so it can be recovered later.
-    // Only the server (admin SDK) and signed-in Louie Labs users can read it --
-    // the database rules block all public reads of these paths.
+    // Registry + metadata live in the Realtime Database (admin-only paths).
+    // Secret is stored in CLEAR (per project decision) so it can be recovered.
     await adminDb.ref(`pre_shared_keys/${deviceId}`).set(secret);
     await adminDb.ref(`device_meta/${deviceId}`).set({
       mac,
       registeredBy: user.email,
       registeredAt: Date.now(),
     });
+    // Seed an idle command so the device has something to poll on first boot.
+    await adminDb.ref(`devices/${deviceId}/command`).set('idle');
 
     return NextResponse.json({ deviceId, mac, secret });
   } catch (err) {

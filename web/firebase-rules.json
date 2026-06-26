@@ -5,7 +5,12 @@
 
     "devices": {
       "$device_id": {
-        ".write": "newData.child('secret').val() === root.child('pre_shared_keys').child($device_id).val()"
+        "state": {
+          ".write": "newData.child('secret').val() === root.child('pre_shared_keys').child($device_id).val()"
+        },
+        "command": {
+          ".read": true
+        }
       }
     },
 
