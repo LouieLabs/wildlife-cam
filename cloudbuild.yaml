@@ -8,3 +8,5 @@ steps:
     ]
 images:
   - 'gcr.io/$PROJECT_ID/louielabs-website'
+options:
+logging: CLOUD_LOGGING_ONLY
