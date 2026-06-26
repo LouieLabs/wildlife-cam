@@ -28,3 +28,8 @@ Antigravity agent uses, so all tools behave consistently.
 - For other surfaces: **Claude.ai Chat** can't read this file — paste these rules
   into a Project's custom instructions there. To apply across all of a student's
   repos, also add `~/.claude/CLAUDE.md`.
+
+## Team Workflow Rules
+- Always create a new feature branch for tasks using standard naming: `feature/your-name-feature-title`
+- Do not make changes directly to the `main` branch.
+- Write modular Arduino code (separate `.ino` or `.cpp/.h` files for distinct hardware components like sensors, displays, etc.) to minimize merge conflicts.
