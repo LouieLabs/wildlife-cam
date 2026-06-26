@@ -1,0 +1,22 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "devices": {
+      "$device_id": {
+        ".write": "newData.child('secret').val() === root.child('pre_shared_keys').child($device_id).val()"
+      }
+    },
+
+    "pre_shared_keys": {
+      ".read": false,
+      ".write": false
+    },
+
+    "device_meta": {
+      ".read": false,
+      ".write": false
+    }
+  }
+}

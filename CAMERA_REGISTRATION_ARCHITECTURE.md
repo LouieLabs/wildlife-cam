@@ -1,3 +1,12 @@
+> ⚠️ **SUPERSEDED — DO NOT IMPLEMENT THE EMAIL FLOW BELOW.**
+> This design trusts the email `From:` header, which anyone can forge, so a
+> stranger could register fake cameras. It also uses `louie_labs_7x29_[MAC]` as
+> the "secret", but a MAC address is public (printed on the device), so that
+> secret is guessable. **The live, secure design replaces email registration
+> with an authenticated Louie Labs Google sign-in and a random per-device
+> secret.** See [`web/README.md`](web/README.md) and the `web/` app. This file is
+> kept only as a record of what we moved away from and why.
+
 📑 Design Spec: Automated Email Device Registry
 Project: Louie Labs Backyard Wildlife Monitor
 Objective: Dynamically whitelist new ESP32 Heltec nodes using factory hardcoded MAC addresses without opening public unauthenticated database API routes.
