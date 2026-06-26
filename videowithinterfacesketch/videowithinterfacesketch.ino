@@ -7,6 +7,8 @@
 #include <WiFiClientSecure.h>             // HTTPS for the weather API
 #include "secrets.h"                      // WIFI_SSID / WIFI_PASSWORD (gitignored)
 #include "halow_SD.h"                     // microSD over SPI (gives the SD object; pulls FS.h + SPI.h)
+#include "freertos/FreeRTOS.h"            // mutex serializing camera frame-buffer access
+#include "freertos/semphr.h"
 
 // --- Time / NTP (requires the ESP32 to have internet access) ---
 // POSIX TZ string. Set to US Pacific (auto-handles PST/PDT daylight saving).
@@ -77,6 +79,12 @@ unsigned long g_lastWeather = 0;
 SPIClass SD_SPI(HSPI);        // the card has its own dedicated SPI bus
 bool     g_sd_ok = false;     // true once a card is mounted
 uint32_t g_sd_count = 0;      // fallback filename counter before NTP time is set
+
+// The camera has a single frame buffer (fb_count=1), shared by the live stream
+// and the snapshot/SD handlers. Without serialization, a snapshot grabbing the
+// buffer while the stream is mid-frame deadlocks both HTTP servers. This mutex
+// makes every esp_camera_fb_get()/...fb_return() pair the sole camera owner.
+SemaphoreHandle_t g_fb_mutex = NULL;
 
 static const char PROGMEM INDEX_HTML[] = R"rawliteral(
 <!DOCTYPE html><html lang="en"><head>
@@ -376,7 +384,8 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
 
   // ====== SAVE MODE SWITCH (browser-side only; never touches the camera) ======
   // 'computer' (green): snapshots/recordings download to this computer (current).
-  // 'sd'       (red):   nothing is saved for now (SD card not set up yet).
+  // 'sd'       (red):   snapshot is saved on the board to /wildcam on the microSD
+  //                     card (see /capture_sd). Recordings still download locally.
   // The live stream runs the same in both modes. Everything below is wrapped so
   // a hiccup here can NEVER stop the feed or the rest of the page.
   let saveMode = 'computer';
@@ -832,8 +841,9 @@ static esp_err_t stream_handler(httpd_req_t *req) {
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
 
   while (true) {
+    xSemaphoreTake(g_fb_mutex, portMAX_DELAY);
     fb = esp_camera_fb_get();
-    if (!fb) { res = ESP_FAIL; break; }
+    if (!fb) { xSemaphoreGive(g_fb_mutex); res = ESP_FAIL; break; }
 
     if (httpd_resp_send_chunk(req, STREAM_BOUNDARY, strlen(STREAM_BOUNDARY)) == ESP_OK) {
       size_t hlen = snprintf(part_buf, sizeof(part_buf), STREAM_PART, fb->len);
@@ -841,19 +851,22 @@ static esp_err_t stream_handler(httpd_req_t *req) {
     }
     if (res == ESP_OK) res = httpd_resp_send_chunk(req, (const char*)fb->buf, fb->len);
     esp_camera_fb_return(fb);
+    xSemaphoreGive(g_fb_mutex);   // release between frames -> a snapshot can grab a turn
     if (res != ESP_OK) break;
   }
   return res;
 }
 
 static esp_err_t capture_handler(httpd_req_t *req) {
+  xSemaphoreTake(g_fb_mutex, portMAX_DELAY);
   camera_fb_t *fb = esp_camera_fb_get();
-  if (!fb) { httpd_resp_send_500(req); return ESP_FAIL; }
+  if (!fb) { xSemaphoreGive(g_fb_mutex); httpd_resp_send_500(req); return ESP_FAIL; }
   httpd_resp_set_type(req, "image/jpeg");
   httpd_resp_set_hdr(req, "Content-Disposition", "inline; filename=capture.jpg");
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
   esp_err_t res = httpd_resp_send(req, (const char*)fb->buf, fb->len);
   esp_camera_fb_return(fb);
+  xSemaphoreGive(g_fb_mutex);
   return res;
 }
 
@@ -1034,8 +1047,9 @@ static esp_err_t capture_sd_handler(httpd_req_t *req) {
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
   if (!g_sd_ok) return httpd_resp_send(req, "NO_SD", 5);
 
+  xSemaphoreTake(g_fb_mutex, portMAX_DELAY);
   camera_fb_t *fb = esp_camera_fb_get();
-  if (!fb) { httpd_resp_send_500(req); return ESP_FAIL; }
+  if (!fb) { xSemaphoreGive(g_fb_mutex); httpd_resp_send_500(req); return ESP_FAIL; }
 
   char path[64];
   time_t now = time(NULL);
@@ -1051,9 +1065,35 @@ static esp_err_t capture_sd_handler(httpd_req_t *req) {
   File f = SD.open(path, FILE_WRITE);
   if (f) { ok = (f.write(fb->buf, fb->len) == fb->len); f.close(); }
   esp_camera_fb_return(fb);
+  xSemaphoreGive(g_fb_mutex);
 
   Serial.printf("SD save %s: %s\n", path, ok ? "ok" : "FAIL");
   return httpd_resp_send(req, ok ? "SAVED" : "WRITE_FAIL", ok ? 5 : 10);
+}
+
+// Seed g_sd_count from existing counter-style files so a reboot *without* NTP
+// time doesn't restart at wildcam_1.jpg and overwrite earlier captures. Only
+// matches wildcam_<digits>.jpg; date-style names (wildcam_YYYYMMDD_HHMMSS.jpg)
+// contain a second '_' and are ignored.
+static void seed_sd_counter() {
+  File dir = SD.open("/wildcam");
+  if (!dir) return;
+  for (File e = dir.openNextFile(); e; e = dir.openNextFile()) {
+    const char *name = e.name();
+    const char *base = strrchr(name, '/');   // tolerate full-path or basename
+    base = base ? base + 1 : name;
+    e.close();
+    if (strncmp(base, "wildcam_", 8) != 0) continue;
+    const char *p = base + 8;
+    bool allDigits = (*p != '\0' && *p != '.');
+    uint32_t n = 0;
+    for (; *p && *p != '.'; p++) {
+      if (*p < '0' || *p > '9') { allDigits = false; break; }
+      n = n * 10 + (uint32_t)(*p - '0');
+    }
+    if (allDigits && strcmp(p, ".jpg") == 0 && n > g_sd_count) g_sd_count = n;
+  }
+  dir.close();
 }
 
 void startCameraServer() {
@@ -1093,6 +1133,8 @@ void startCameraServer() {
 void setup() {
   Serial.begin(115200);
   delay(1000);
+
+  g_fb_mutex = xSemaphoreCreateMutex();   // guard the single camera frame buffer
 
   camera_config_t config;
   config.ledc_channel = LEDC_CHANNEL_0;
@@ -1147,6 +1189,9 @@ void setup() {
       Serial.printf("[SD] card OK (%llu MB, type %d)\n",
                     SD.cardSize() / (1024ULL * 1024ULL), (int)SD.cardType());
       if (!SD.exists("/wildcam")) SD.mkdir("/wildcam");
+      seed_sd_counter();   // resume the fallback counter past existing files
+      if (g_sd_count) Serial.printf("[SD] fallback counter resumes at %lu\n",
+                                    (unsigned long)(g_sd_count + 1));
     } else {
       Serial.printf("[SD] mount failed (attempt %d/3)\n", attempt);
       delay(300);
