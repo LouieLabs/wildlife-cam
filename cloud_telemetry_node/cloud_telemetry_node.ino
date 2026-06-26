@@ -30,15 +30,14 @@ static void goToDeepSleep(uint32_t seconds) {
   Serial.printf("[sleep] deep sleep for %u s (the chip resets on wake)\n", seconds);
   Serial.flush();
 
-  // Turn the radio fully off before sleeping.
+  // Turn the radio fully off before sleeping (lowest current draw).
   WiFi.disconnect(true);
   WiFi.mode(WIFI_OFF);
-  esp_wifi_stop();
 
-  // Deepest mode that can still wake ITSELF: power down the RTC peripherals and
-  // leave only the RTC timer running to wake us. (RTC memory stays on so
-  // bootCount survives.)
-  esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_OFF);
+  // Deep sleep with a timer wake. We deliberately do NOT call
+  // esp_sleep_pd_config() here: on this Heltec/ESP-IDF build it asserts and
+  // crashes, and it isn't needed -- timer deep sleep already powers down the
+  // unused domains for us, leaving only the RTC timer running to wake us.
   esp_sleep_enable_timer_wakeup((uint64_t)seconds * 1000000ULL);
   esp_deep_sleep_start();   // <-- never returns; board reboots into setup() on wake
 }
