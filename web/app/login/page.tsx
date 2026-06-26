@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { onAuthStateChanged, signInWithPopup, signOut, type User } from 'firebase/auth';
 import { clientAuth, googleProvider } from '@/lib/firebaseClient';
 
@@ -8,6 +9,7 @@ const DOMAIN = process.env.NEXT_PUBLIC_ALLOWED_EMAIL_DOMAIN || 'louielabs.com';
 export default function LoginPage() {
   const [user, setUser] = useState<User | null>(null);
   const [error, setError] = useState('');
+  const router = useRouter();
 
   useEffect(() => onAuthStateChanged(clientAuth, setUser), []);
 
@@ -19,6 +21,8 @@ export default function LoginPage() {
       if (!email.endsWith('@' + DOMAIN)) {
         await signOut(clientAuth);
         setError(`Please use your @${DOMAIN} account.`);
+      } else {
+        router.push('/'); // signed in -> back to the main page
       }
     } catch (e: any) {
       setError(e?.message || 'Sign-in failed');
