@@ -14,17 +14,24 @@ static bool g_sd_ok = false;
 bool sdInit() {
   if (g_sd_ok) return true;
   SD_SPI.begin(SD_CLK_PIN, SD_MISO_PIN, SD_MOSI_PIN, SD_CS_PIN);
-  for (int attempt = 1; attempt <= 3; attempt++) {
-    if (SD.begin(SD_CS_PIN, SD_SPI)) {
+
+  // Try progressively slower SPI clocks. A card initializes at low speed even on
+  // a marginal slot/link, where the default 4 MHz can fail -- matches the robust
+  // HT-HC33_SDTest approach. (A truly dead card or a too-picky slot still fails,
+  // but this rescues the borderline cases.)
+  const uint32_t kSpeeds[] = { 4000000, 1000000, 400000 };
+  for (int i = 0; i < 3; i++) {
+    if (SD.begin(SD_CS_PIN, SD_SPI, kSpeeds[i])) {
       g_sd_ok = true;
       if (!SD.exists("/wildcam")) SD.mkdir("/wildcam");
-      Serial.printf("[sd] card OK (%llu MB)\n", SD.cardSize() / (1024ULL * 1024ULL));
+      Serial.printf("[sd] card OK at %lu Hz (%llu MB)\n",
+                    (unsigned long)kSpeeds[i], SD.cardSize() / (1024ULL * 1024ULL));
       return true;
     }
-    Serial.printf("[sd] mount failed (attempt %d/3)\n", attempt);
+    Serial.printf("[sd] mount failed at %lu Hz\n", (unsigned long)kSpeeds[i]);
     delay(300);
   }
-  Serial.println("[sd] no card detected");
+  Serial.println("[sd] no card mounted (tried 4 MHz / 1 MHz / 400 kHz)");
   return false;
 }
 
