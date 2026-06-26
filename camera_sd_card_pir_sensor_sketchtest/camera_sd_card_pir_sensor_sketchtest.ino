@@ -103,6 +103,10 @@ unsigned long g_lastSdTry = 0;// last remount attempt (loop retries until a card
 bool          g_pir_enabled  = true;   // master on/off for motion capture
 unsigned long g_pir_lastShot = 0;      // millis() of the last motion photo
 bool          g_pir_warned   = false;  // printed the "warming up" note yet?
+// Bumps once per motion event. The open web page polls /motion and, when this
+// number goes up, presses Snapshot for you (saving to the computer). volatile is
+// enough: 32-bit, written only by loop(), read only by the web handler.
+volatile uint32_t g_motion_seq = 0;
 
 // Guards the single camera frame buffer. The live-stream task and a motion
 // capture (or web Snapshot) can otherwise grab the one buffer at the same moment
@@ -237,6 +241,11 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
           <button id="modeComputer" class="green" onclick="setSaveMode('computer')">Save to Computer</button>
           <button id="modeSD" class="red" onclick="setSaveMode('sd')">Upload to SD card</button>
         </div>
+      </div>
+      <div class="saverow">
+        <div class="lbl">Auto-snapshot on motion</div>
+        <div class="toggle"><span id="autoMotionLbl">On — motion saves a snapshot</span>
+          <div class="switch on" id="autoMotionSw" onclick="toggleAutoMotion()"></div></div>
       </div>
       <div class="actions">
         <button onclick="snap()">Snapshot</button>
@@ -425,6 +434,46 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
       : 'Saving to this computer';
   }
   try { setSaveMode(saveMode); } catch(e){}   // apply remembered choice; never block the page
+
+  // ====== AUTO-SNAPSHOT ON MOTION ======
+  // The camera bumps a counter at /motion every time the PIR sensor sees movement.
+  // We poll it ~1x/sec and, when it rises, press the same Snapshot you'd click by
+  // hand — so it obeys the Save-mode switch above (green = save to this computer).
+  // Guards: a null baseline (so we don't snap on page load) and a busy flag (so a
+  // burst of motion doesn't stack overlapping captures). All wrapped so a hiccup
+  // here can never stop the live stream.
+  let autoMotion = true;
+  try { autoMotion = (localStorage.getItem('cw_autoMotion') || '1') === '1'; } catch(e){}
+  let motionBase = null, motionBusy = false;
+
+  function setAutoMotion(on){
+    autoMotion = !!on;
+    try { localStorage.setItem('cw_autoMotion', autoMotion ? '1' : '0'); } catch(e){}
+    const sw = document.getElementById('autoMotionSw');
+    if(sw) sw.classList.toggle('on', autoMotion);
+    const lbl = document.getElementById('autoMotionLbl');
+    if(lbl) lbl.textContent = autoMotion ? 'On — motion saves a snapshot' : 'Off';
+  }
+  function toggleAutoMotion(){ setAutoMotion(!autoMotion); }
+
+  function pollMotion(){
+    fetch('/motion').then(r=>r.json()).then(j=>{
+      const seq = j.seq;
+      if(motionBase === null){ motionBase = seq; return; }   // first read: just set a baseline
+      const moved = seq > motionBase;
+      motionBase = seq;                                       // always track latest (coalesces bursts)
+      if(!moved || !autoMotion || !j.armed || motionBusy) return;
+      if(saveMode !== 'computer'){
+        if(status) status.textContent = 'Motion — set Save mode to "Save to Computer" to auto-save';
+        return;
+      }
+      motionBusy = true;
+      if(status) status.textContent = 'Motion detected — saving snapshot…';
+      try { snap(); } catch(e){}
+      setTimeout(()=>{ motionBusy = false; }, 1500);          // let one capture finish before the next
+    }).catch(()=>{});
+  }
+  try { setAutoMotion(autoMotion); setInterval(pollMotion, 1000); } catch(e){}
 
   // ============ DATE / TIME / TEMP ============
   // Time comes from the CAMERA's NTP-synced clock (via /status), not the
@@ -1065,6 +1114,17 @@ static esp_err_t status_handler(httpd_req_t *req) {
   return httpd_resp_send(req, json, len);
 }
 
+// Tiny endpoint the web page polls to learn when motion happened. Returns the
+// running motion counter and whether the sensor has finished warming up.
+static esp_err_t motion_handler(httpd_req_t *req) {
+  char json[64];
+  int len = snprintf(json, sizeof(json), "{\"seq\":%lu,\"armed\":%s}",
+                     (unsigned long)g_motion_seq, (millis() >= PIR_WARMUP_MS) ? "true" : "false");
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  return httpd_resp_send(req, json, len);
+}
+
 // Capture one frame and write it to /wildcam on the SD card. Shared by the web
 // "Upload to SD card" button and the PIR motion trigger.
 // Returns: 0 = saved ok, 1 = no SD, 2 = camera grab failed, 3 = write failed,
@@ -1121,13 +1181,14 @@ void startCameraServer() {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
   config.server_port = 80;
   config.ctrl_port = 32768;
-  config.max_uri_handlers = 8;
+  config.max_uri_handlers = 10;
 
   httpd_uri_t index_uri   = { .uri="/",        .method=HTTP_GET, .handler=index_handler,   .user_ctx=NULL };
   httpd_uri_t capture_uri = { .uri="/capture", .method=HTTP_GET, .handler=capture_handler, .user_ctx=NULL };
   httpd_uri_t control_uri = { .uri="/control", .method=HTTP_GET, .handler=control_handler, .user_ctx=NULL };
   httpd_uri_t status_uri  = { .uri="/status",  .method=HTTP_GET, .handler=status_handler,  .user_ctx=NULL };
   httpd_uri_t capturesd_uri = { .uri="/capture_sd", .method=HTTP_GET, .handler=capture_sd_handler, .user_ctx=NULL };
+  httpd_uri_t motion_uri  = { .uri="/motion",  .method=HTTP_GET, .handler=motion_handler,  .user_ctx=NULL };
 
   if (httpd_start(&camera_httpd, &config) == ESP_OK) {
     httpd_register_uri_handler(camera_httpd, &index_uri);
@@ -1135,6 +1196,7 @@ void startCameraServer() {
     httpd_register_uri_handler(camera_httpd, &control_uri);
     httpd_register_uri_handler(camera_httpd, &status_uri);
     httpd_register_uri_handler(camera_httpd, &capturesd_uri);
+    httpd_register_uri_handler(camera_httpd, &motion_uri);
   }
 
   // ---- Dedicated stream server on port 81 ----
@@ -1271,10 +1333,11 @@ void loop() {
     }
   }
 
-  // ---- Motion-triggered capture (HC-SR501 on PIR_PIN) ----
-  // While the sensor reports motion, save a photo to the SD card no more often
-  // than every PIR_INTERVAL_MS (0.5 s). The sensor needs ~1 min after power-on
-  // to settle, so we ignore it until the warm-up window passes.
+  // ---- Motion detection (HC-SR501 on PIR_PIN) ----
+  // We don't save here — we just bump a counter (max once per PIR_INTERVAL_MS).
+  // The open web page polls /motion and, when the counter rises, presses Snapshot
+  // for you (which saves to the computer per the green/red Save-mode switch).
+  // The sensor needs ~1 min after power-on to settle, so ignore it until then.
   if (g_pir_enabled) {
     if (millis() < PIR_WARMUP_MS) {
       if (!g_pir_warned) {
@@ -1284,12 +1347,9 @@ void loop() {
     } else if (digitalRead(PIR_PIN) == HIGH &&
                (millis() - g_pir_lastShot) >= PIR_INTERVAL_MS) {
       g_pir_lastShot = millis();
-      char path[64] = {0};
-      int rc = sd_capture_now(path, sizeof(path));
-      if      (rc == 0) Serial.printf("[PIR] motion -> saved %s\n", path);
-      else if (rc == 1) Serial.println("[PIR] motion detected, but NO SD card — not saved");
-      else if (rc == 4) Serial.println("[PIR] motion detected, but camera was busy — skipped");
-      else              Serial.printf("[PIR] motion detected, but save FAILED (code %d)\n", rc);
+      g_motion_seq++;
+      Serial.printf("[PIR] motion #%lu — telling the open web page to snapshot\n",
+                    (unsigned long)g_motion_seq);
     }
   }
 
