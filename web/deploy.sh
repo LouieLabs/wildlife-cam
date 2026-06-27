@@ -31,7 +31,7 @@ echo "==> building + deploying to Cloud Run (runs AS the cloud-backend SA -> key
 gcloud run deploy "$SERVICE" \
   --source . --region "$REGION" --project "$PROJECT" \
   --service-account "$SA" \
-  --allow-unauthenticated \
+  --allow-unauthenticated --quiet \
   --set-env-vars "GCP_PROJECT_ID=${PROJECT},GCLOUD_STORAGE_BUCKET=${BUCKET},FIREBASE_DATABASE_URL=${RTDB},FIRESTORE_DATABASE_ID=${FSDB},APP_ENV=prod" \
   --set-secrets "CAMERA_API_KEY=camera-api-key:latest"
 
