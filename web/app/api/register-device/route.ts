@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'MAC must be 12 hex characters' }, { status: 400 });
     }
 
-    const secret = generateDeviceSecret(6);
+    const secret = generateDeviceSecret();
 
     // Registry + metadata live in the Realtime Database (admin-only paths).
     // Secret is stored in CLEAR (per project decision) so it can be recovered.

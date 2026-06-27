@@ -15,7 +15,7 @@ telemetry. They can't run at the same time.
 
 ## Setup & flashing
 1. Register the device on the dashboard first → note its **device ID** and the
-   **6-char secret**.
+   **10-char secret** (`XXX-XXX-XXXX`).
 2. `cp secrets.example.h secrets.h` and fill in Wi-Fi, `DEVICE_SECRET`, and
    `CAMERA_API_KEY` (match `web/.env.local`).
 3. In `node_config.h`, set `DEVICE_ID` to match, and `SLEEP_SECONDS`

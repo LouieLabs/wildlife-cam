@@ -33,14 +33,14 @@ limitation, not a choice.
 | Concern | How it's handled |
 | --- | --- |
 | Who can register / command devices | A student signed in with a real **@louielabs.com Google account**, verified on the server (`requireLouieLabsUser`) |
-| Device secret | **Random 6-char** secret, server-generated, unrelated to the MAC. Stored in clear for recovery; never publicly readable |
+| Device secret | **Random 10-char** secret (`XXX-XXX-XXXX`), server-generated, unrelated to the MAC. Stored in clear for recovery; never publicly readable |
 | Realtime Database | Locked. Devices may only WRITE `/devices/<id>/state` if their secret matches the registry. `/devices/<id>/command` is public-READ only (commands aren't secret). Everything else is closed |
 | Firestore | Fully locked to clients; all detection reads/writes go through authenticated server routes using the Admin SDK |
 | Cloud login | **Keyless** Application Default Credentials with service-account impersonation — no JSON key files anywhere |
 
-**Trade-off chosen on purpose:** the 6-char secret is short and stored in clear
-so students can recover it. Fine for a backyard project; bump `lib/secret.ts` and
-add write rate-limiting if you scale up.
+**Trade-off chosen on purpose:** the secret is stored in clear so students can
+recover it. The only feasible attack is online guessing against the database,
+which the 10-char (`XXX-XXX-XXXX`, ~51-bit) secret defeats with a huge margin.
 
 ---
 
@@ -63,7 +63,7 @@ web/
     firebaseAdmin.ts              keyless Admin SDK -> RTDB + named Firestore
     firebaseClient.ts             browser Firebase (public web config)
     requireLouieLabsUser.ts       verify ID token + @louielabs.com domain
-    secret.ts                     random 6-char secret generator
+    secret.ts                     random 10-char secret generator
   firebase-rules.json             locked Realtime Database rules
   firestore.rules                 locked Firestore rules
   .env.local.example              copy to .env.local and fill in
@@ -103,7 +103,7 @@ web/
 
 - **Status (write):** node writes `devices/<id>/state` =
   `{ status, battery, secret, updatedAt }`. The RTDB rule accepts it only if
-  `secret` matches the registry. Use the 6-char secret — **not** the MAC.
+  `secret` matches the registry. Use the 10-char secret — **not** the MAC.
 - **Commands (read):** node polls `devices/<id>/command` (e.g. `take_picture`),
   acts, then keeps reporting status. Only the signed-in dashboard can set a
   command.
