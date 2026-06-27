@@ -44,6 +44,28 @@ which the 10-char (`XXX-XXX-XXXX`, ~51-bit) secret defeats with a huge margin.
 
 ---
 
+## Dev vs production data (automatic tagging)
+
+Every artifact is **stamped with its environment at creation**, so dev test data
+can be purged without ever touching production:
+
+- Set by **`APP_ENV`** — `dev` locally (in `.env.local`), `prod` on Cloud Run.
+  (Missing → treated as `prod` to fail safe.)
+- **Images / movies (GCS):** the `get-upload-url` route — the *single door* every
+  image passes through — prefixes the path: `dev/uploads/...` vs `prod/uploads/...`.
+  So field auto-captures, "save" buttons, anything, are all tagged automatically.
+- **Detections (Firestore):** docs carry an `env: "dev" | "prod"` field.
+- **Telemetry (RTDB):** not tagged (the board writes it directly, and it's
+  current-state that gets overwritten, not accumulated). Namespace dev device IDs
+  if you want strict separation.
+
+**Purge dev data:** `npm run clean:dev` (dry run) → `npm run clean:dev -- --yes`
+(delete). It only removes the `dev/` prefix + `env=="dev"` docs, so it physically
+cannot touch prod. Anything left **un-tagged** (no `dev/`/`prod/` prefix) is a
+pre-convention straggler — visible with a single `gsutil ls`, easy to clean by hand.
+
+---
+
 ## Files
 
 ```

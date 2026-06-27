@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminFirestore } from '@/lib/firebaseAdmin';
 import { rtdbSet } from '@/lib/rtdb';
+import { APP_ENV } from '@/lib/appEnv';
 import { timingSafeEqual } from 'crypto';
 
 export const runtime = 'nodejs';
@@ -42,6 +43,7 @@ export async function POST(req: NextRequest) {
     // 2) record the capture (analysis pending)
     const ref = await adminFirestore.collection('wildlife_detections').add({
       deviceId,
+      env: APP_ENV, // tag so dev records can be purged without touching prod
       objectPath: objectPath || null,
       capturedAt: Date.now(),
       detections: [], // Gemini fills this in later

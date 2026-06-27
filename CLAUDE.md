@@ -28,6 +28,11 @@ Antigravity agent uses, so all tools behave consistently.
 - For other surfaces: **Claude.ai Chat** can't read this file — paste these rules
   into a Project's custom instructions there. To apply across all of a student's
   repos, also add `~/.claude/CLAUDE.md`.
+- **Cloud artifacts are environment-tagged** (`APP_ENV` in `web/`): dev images
+  live under `dev/` in GCS and dev detections carry `env:"dev"` in Firestore (see
+  `web/README.md`). When wrapping up dev work that produced cloud artifacts,
+  **offer to run `npm run clean:dev`** (in `web/`) so dev test data doesn't pile
+  up. It can never touch production data.
 
 ## Team Workflow Rules
 - Always create a new feature branch for tasks using standard naming: `feature/your-name-feature-title`

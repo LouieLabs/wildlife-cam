@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Storage } from '@google-cloud/storage';
 import { timingSafeEqual } from 'crypto';
+import { APP_ENV } from '@/lib/appEnv';
 
 // Must run on the Node.js runtime: signing needs the Google Cloud SDK + ADC.
 export const runtime = 'nodejs';
@@ -37,7 +38,11 @@ export async function POST(req: NextRequest) {
     // No JSON body is fine -- we fall back to the default object name.
   }
 
-  const objectName = `uploads/${deviceId}/${Date.now()}.jpg`;
+  // Tag the path by environment so dev images all live under "dev/" and can be
+  // purged without touching prod. This is THE chokepoint -- every image reaching
+  // the bucket (field auto-capture, a "save" button, future movies) comes
+  // through here, so everything is tagged automatically.
+  const objectName = `${APP_ENV}/uploads/${deviceId}/${Date.now()}.jpg`;
   const [uploadUrl] = await storage
     .bucket(BUCKET)
     .file(objectName)

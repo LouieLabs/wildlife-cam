@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Storage } from '@google-cloud/storage';
 import { adminFirestore } from '@/lib/firebaseAdmin';
 import { requireLouieLabsUser, HttpError } from '@/lib/requireLouieLabsUser';
+import { APP_ENV } from '@/lib/appEnv';
 import { timingSafeEqual } from 'crypto';
 
 export const runtime = 'nodejs';
@@ -81,6 +82,7 @@ export async function POST(req: NextRequest) {
 
     const ref = await adminFirestore.collection(COLLECTION).add({
       deviceId,
+      env: APP_ENV, // tag so dev records can be purged without touching prod
       objectPath: typeof body.objectPath === 'string' ? body.objectPath : null,
       capturedAt: typeof body.capturedAt === 'number' ? body.capturedAt : Date.now(),
       detections: Array.isArray(body.detections) ? body.detections : [],
