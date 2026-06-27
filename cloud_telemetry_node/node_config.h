@@ -12,10 +12,11 @@
 // Realtime Database host -- no "https://", no trailing slash.
 #define RTDB_HOST        "louielabs-animal-cams-default-rtdb.firebaseio.com"
 
-// Base URL of the web app (for photo upload links). While testing against
-// `npm run dev`, this is your computer's LAN address (NOT localhost). Update if
-// your computer's IP changes -- Next prints a "Network:" URL on startup.
-#define BACKEND_BASE_URL "http://192.168.1.26:3000"
+// Base URL of the web app (for photo upload links). Set this to your computer's
+// LAN address while testing against `npm run dev` (NOT localhost) -- Next prints
+// a "Network:" URL on startup. This is dev-machine specific, so it ships as a
+// placeholder; update it locally (it changes when your DHCP lease does).
+#define BACKEND_BASE_URL "http://YOUR_DEV_MACHINE:3000"
 
 // Basic telemetry test: on every wake, capture a photo, save it to the SD card,
 // wait 5 s, then upload it to the cloud. Set to 0 to go back to status-only.
@@ -29,8 +30,19 @@
 //   * 30  -> your normal setting
 #define SLEEP_SECONDS    30
 
-// --- Battery sense ----------------------------------------------------------
-// Set BATTERY_ADC_PIN to the ADC-capable GPIO wired to your battery divider.
-// Leave it at -1 to report a fixed test value until you tell me the real pin.
-#define BATTERY_ADC_PIN     -1
-#define BATTERY_TEST_VALUE  100
+// --- Battery sense (real HT-HC33 circuit, from the datasheet) ----------------
+// Drive ADC_Ctrl HIGH to switch VBAT through a 100K/100K divider into ADC_IN,
+// so the pin reads VBAT/2. (Datasheet section 4.1.)
+#define BAT_ADC_CTRL_PIN   20      // ADC_Ctrl enable (also USB_P; unused since we use the CP2102)
+#define BAT_ADC_PIN        1       // ADC_IN = VBAT / 2
+#define VBAT_EMPTY_MV      3400    // ~0%  (Li-ion empty)
+#define VBAT_FULL_MV       4200    // ~100% (Li-ion full)
+
+// --- Dev vs Field mode (auto, single codebase) ------------------------------
+// On a COLD boot, the node listens this long on the serial port. If a developer
+// (a computer is connected) presses any key, it enters DEV MODE: a self-contained
+// 2.4 GHz Wi-Fi hotspot + camera website, and stays awake. No key -> FIELD MODE
+// (the normal low-power deep-sleep behavior). Timer wakes skip the listen.
+#define DEV_MODE_LISTEN_MS   10000
+// Dev hotspot password (WPA2 needs >= 8 chars). SSID is "wildcam-<DEVICE_ID>".
+#define DEV_AP_PASSWORD      "wildcam1234"

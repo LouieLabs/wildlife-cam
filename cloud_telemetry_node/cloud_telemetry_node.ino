@@ -23,6 +23,7 @@
 #include "cloud_backend.h"
 #include "camera_capture.h"
 #include "sd_store.h"
+#include "dev_mode.h"
 
 // Survives deep sleep (kept in RTC memory) so we can count wake-ups in the log.
 RTC_DATA_ATTR uint32_t bootCount = 0;
@@ -104,8 +105,18 @@ void setup() {
   Serial.begin(115200);
   delay(300);
   bootCount++;
-  Serial.printf("\n=== wake #%u (wake reason: %d) ===\n",
-                bootCount, (int)esp_sleep_get_wakeup_cause());
+  bool coldBoot = (esp_sleep_get_wakeup_cause() != ESP_SLEEP_WAKEUP_TIMER);
+  Serial.printf("\n=== wake #%u (wake reason: %d, %s) ===\n",
+                bootCount, (int)esp_sleep_get_wakeup_cause(),
+                coldBoot ? "cold boot" : "timer wake");
+
+  // 0) On a cold boot only, offer DEV MODE. A developer (computer on the USB
+  //    serial) presses a key -> Wi-Fi hotspot + website, stay awake. Otherwise
+  //    fall through to the normal low-power FIELD behavior. Timer wakes skip this
+  //    so deep-sleep cycles never pay the listen cost.
+  if (coldBoot && devModeRequested(DEV_MODE_LISTEN_MS)) {
+    runDevMode();   // never returns
+  }
 
   // 1) Get online. If Wi-Fi won't connect, don't waste battery -- just sleep.
   if (!wifiConnect()) {

@@ -13,6 +13,20 @@ A board that deep-sleeps **cannot** also run the always-on camera web stream
 (`videowithinterfacesketch`). Pick one per board: streaming OR low-power
 telemetry. They can't run at the same time.
 
+## Dev mode vs Field mode (automatic, one codebase)
+On a **cold boot**, the node waits `DEV_MODE_LISTEN_MS` (10 s) for a keypress on
+the USB serial port:
+- **Press a key** (a computer is connected) → **DEV MODE**: the board brings up a
+  self-contained Wi-Fi hotspot `wildcam-<device_id>` (password `DEV_AP_PASSWORD`)
+  + a camera website. Connect to that Wi-Fi and open `http://192.168.4.1/`. Ideal
+  for offsite dev with no network or HaLow gateway. Stays awake (no deep sleep).
+- **No key** (deployed) → **FIELD MODE**: the normal low-power cycle below.
+  Deep-sleep timer wakes skip the listen, so it's a one-time cold-boot cost.
+
+It keys off "is a developer connected" (the serial port), not power — so a
+solar/USB charger can't accidentally flip a field unit into Wi-Fi mode. Battery
+% is read from the real divider (`ADC_Ctrl` on GPIO20 → `ADC_IN` on GPIO1).
+
 ## Setup & flashing
 1. Register the device on the dashboard first → note its **device ID** and the
    **10-char secret** (`XXX-XXX-XXXX`).

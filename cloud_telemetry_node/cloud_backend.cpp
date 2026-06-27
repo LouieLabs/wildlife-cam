@@ -32,17 +32,19 @@ bool wifiConnect(uint32_t timeoutMs) {
 // Battery (stubbed until a real sense pin + divider ratio are provided)
 // ---------------------------------------------------------------------------
 int readBatteryPercent() {
-#if BATTERY_ADC_PIN < 0
-  return BATTERY_TEST_VALUE;
-#else
-  // Rough placeholder: assumes a divider mapping 0-3.3V at the pin to 0-100%.
-  // Replace the math once you tell me the divider ratio / battery range.
-  int raw = analogRead(BATTERY_ADC_PIN);          // 0..4095 on ESP32-S3
-  int pct = (int)((raw / 4095.0f) * 100.0f);
+  // Enable the divider, let it settle, average a few calibrated reads, disable.
+  pinMode(BAT_ADC_CTRL_PIN, OUTPUT);
+  digitalWrite(BAT_ADC_CTRL_PIN, HIGH);
+  delay(10);
+  uint32_t sum = 0;
+  for (int i = 0; i < 8; i++) { sum += analogReadMilliVolts(BAT_ADC_PIN); delay(2); }
+  digitalWrite(BAT_ADC_CTRL_PIN, LOW);   // turn the divider back off (saves power)
+
+  int vbat_mv = (sum / 8) * 2;           // pin reads VBAT/2 (100K/100K divider)
+  long pct = (long)(vbat_mv - VBAT_EMPTY_MV) * 100 / (VBAT_FULL_MV - VBAT_EMPTY_MV);
   if (pct < 0) pct = 0;
   if (pct > 100) pct = 100;
-  return pct;
-#endif
+  return (int)pct;
 }
 
 // ---------------------------------------------------------------------------
