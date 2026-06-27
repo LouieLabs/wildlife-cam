@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { adminDb } from '@/lib/firebaseAdmin';
+import { rtdbGet } from '@/lib/rtdb';
 import { requireLouieLabsUser, HttpError } from '@/lib/requireLouieLabsUser';
 
 export const runtime = 'nodejs';
@@ -11,13 +11,13 @@ export async function GET(req: NextRequest) {
   try {
     await requireLouieLabsUser(req);
 
-    const [devicesSnap, metaSnap] = await Promise.all([
-      adminDb.ref('devices').get(),
-      adminDb.ref('device_meta').get(),
+    const [devicesData, metaData] = await Promise.all([
+      rtdbGet<Record<string, any>>('devices'),
+      rtdbGet<Record<string, any>>('device_meta'),
     ]);
 
-    const devices = devicesSnap.val() || {};
-    const meta = metaSnap.val() || {};
+    const devices = devicesData || {};
+    const meta = metaData || {};
 
     const list = Object.keys(devices).map((id) => {
       const node = devices[id] || {};

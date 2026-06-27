@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { adminDb } from '@/lib/firebaseAdmin';
+import { rtdbSet } from '@/lib/rtdb';
 import { requireLouieLabsUser, HttpError } from '@/lib/requireLouieLabsUser';
 import { generateDeviceSecret } from '@/lib/secret';
 
@@ -30,14 +30,14 @@ export async function POST(req: NextRequest) {
 
     // Registry + metadata live in the Realtime Database (admin-only paths).
     // Secret is stored in CLEAR (per project decision) so it can be recovered.
-    await adminDb.ref(`pre_shared_keys/${deviceId}`).set(secret);
-    await adminDb.ref(`device_meta/${deviceId}`).set({
+    await rtdbSet(`pre_shared_keys/${deviceId}`, secret);
+    await rtdbSet(`device_meta/${deviceId}`, {
       mac,
       registeredBy: user.email,
       registeredAt: Date.now(),
     });
     // Seed an idle command so the device has something to poll on first boot.
-    await adminDb.ref(`devices/${deviceId}/command`).set('idle');
+    await rtdbSet(`devices/${deviceId}/command`, 'idle');
 
     return NextResponse.json({ deviceId, mac, secret });
   } catch (err) {

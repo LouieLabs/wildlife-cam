@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { adminDb, adminFirestore } from '@/lib/firebaseAdmin';
+import { adminFirestore } from '@/lib/firebaseAdmin';
+import { rtdbSet } from '@/lib/rtdb';
 import { timingSafeEqual } from 'crypto';
 
 export const runtime = 'nodejs';
@@ -36,7 +37,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 1) clear the command
-    await adminDb.ref(`devices/${deviceId}/command`).set('idle');
+    await rtdbSet(`devices/${deviceId}/command`, 'idle');
 
     // 2) record the capture (analysis pending)
     const ref = await adminFirestore.collection('wildlife_detections').add({

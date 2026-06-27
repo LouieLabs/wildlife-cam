@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { adminDb } from '@/lib/firebaseAdmin';
+import { rtdbGet } from '@/lib/rtdb';
 import { requireLouieLabsUser, HttpError } from '@/lib/requireLouieLabsUser';
 
 export const runtime = 'nodejs';
@@ -18,12 +18,12 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid device ID' }, { status: 400 });
     }
 
-    const snap = await adminDb.ref(`pre_shared_keys/${deviceId}`).get();
-    if (!snap.exists()) {
+    const secret = await rtdbGet<string>(`pre_shared_keys/${deviceId}`);
+    if (secret === null) {
       return NextResponse.json({ error: 'No such device' }, { status: 404 });
     }
 
-    return NextResponse.json({ deviceId, secret: snap.val() });
+    return NextResponse.json({ deviceId, secret });
   } catch (err) {
     if (err instanceof HttpError) {
       return NextResponse.json({ error: err.message }, { status: err.status });

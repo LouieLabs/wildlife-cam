@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { adminDb } from '@/lib/firebaseAdmin';
+import { rtdbSet } from '@/lib/rtdb';
 import { requireLouieLabsUser, HttpError } from '@/lib/requireLouieLabsUser';
 
 export const runtime = 'nodejs';
@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    await adminDb.ref(`devices/${deviceId}/command`).set(action);
+    await rtdbSet(`devices/${deviceId}/command`, action);
     return NextResponse.json({ deviceId, command: action });
   } catch (err) {
     if (err instanceof HttpError) {
