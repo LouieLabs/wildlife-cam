@@ -18,8 +18,9 @@
 // placeholder; update it locally (it changes when your DHCP lease does).
 #define BACKEND_BASE_URL "http://YOUR_DEV_MACHINE:3000"
 
-// Basic telemetry test: on every wake, capture a photo, save it to the SD card,
-// wait 5 s, then upload it to the cloud. Set to 0 to go back to status-only.
+// Basic telemetry test: on every wake, capture a photo, save it to internal
+// flash (LittleFS), wait 5 s, then upload it to the cloud (and any photos left
+// over from a previous failed upload). Set to 0 to go back to status-only.
 #define DO_CAPTURE_CYCLE   1
 #define CAPTURE_WAIT_MS    5000
 

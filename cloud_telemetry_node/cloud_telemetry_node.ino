@@ -22,7 +22,7 @@
 #include "secrets.h"
 #include "cloud_backend.h"
 #include "camera_capture.h"
-#include "sd_store.h"
+#include "flash_store.h"
 #include "dev_mode.h"
 
 // Survives deep sleep (kept in RTC memory) so we can count wake-ups in the log.
@@ -68,11 +68,45 @@ static void doTakePicture() {
   cameraDeinit();   // power the camera back down before we sleep
 }
 
-// Basic telemetry test (no PIR yet): capture a photo, SAVE IT TO SD, wait 5 s,
-// then upload that saved file to the cloud. The 5 s stands in for the future
-// "wait for a lull" step. The photo stays on SD so it's never lost.
-static void captureSaveWaitUpload() {
-  Serial.println("[cycle] capture -> SD -> wait -> upload");
+// Upload every photo still sitting in flash (this cycle's plus any leftovers
+// from earlier cycles whose upload failed), oldest first. A file is deleted
+// ONLY after the backend confirms the upload, so nothing is lost on a flaky
+// link -- it just gets retried on the next wake. We stop on the first failure
+// (usually the network is down) and try again next time.
+static void uploadPendingPhotos() {
+  String pending[16];
+  int n = flashListPending(pending, 16);
+  if (n == 0) { Serial.println("[cycle] nothing to upload"); return; }
+  Serial.printf("[cycle] %d photo(s) pending upload\n", n);
+
+  for (int i = 0; i < n; i++) {
+    String objectName;
+    String signedUrl = requestUploadUrl(objectName);
+    if (!signedUrl.length()) {
+      Serial.println("[upload] no signed URL -> stopping, retry next wake");
+      break;
+    }
+    File f = flashOpen(pending[i]);
+    if (!f) { Serial.printf("[flash] reopen %s failed -> skip\n", pending[i].c_str()); continue; }
+    bool ok = uploadStream(signedUrl, f, f.size());
+    f.close();
+    if (ok) {
+      captureComplete(objectName);
+      flashDelete(pending[i]);   // safe to remove now: the upload is confirmed
+      Serial.println("[upload] uploaded from flash ✓");
+    } else {
+      Serial.println("[upload] FAILED -> keeping file for retry next wake");
+      break;
+    }
+  }
+  Serial.printf("[flash] room for ~%d more photos\n", picsRemaining());
+}
+
+// Basic telemetry test (no PIR yet): capture a photo, SAVE IT TO FLASH, wait
+// 5 s, then upload. The 5 s stands in for the future "wait for a lull" step.
+// The photo stays in flash until its upload is confirmed, so it's never lost.
+static void captureSaveUpload() {
+  Serial.println("[cycle] capture -> flash -> wait -> upload");
   if (!cameraInit()) { Serial.println("[cam] init failed"); return; }
 
   camera_fb_t *fb = cameraCapture();
@@ -81,24 +115,15 @@ static void captureSaveWaitUpload() {
 
   long epoch = getEpochSeconds();
   long long tsMs = epoch ? (long long)epoch * 1000LL : 0LL;
-  String path = sdSaveJpeg(fb->buf, fb->len, tsMs, ++captureSeq);
+  String path = flashSaveJpeg(fb->buf, fb->len, tsMs, ++captureSeq);
   cameraReturn(fb);
   cameraDeinit();   // done with the camera; save power during the wait + upload
-  if (!path.length()) { Serial.println("[sd] save failed -> skip upload"); return; }
+  if (!path.length()) { Serial.println("[flash] save failed -> skip upload"); return; }
 
   Serial.printf("[cycle] waiting %d ms before upload...\n", CAPTURE_WAIT_MS);
   delay(CAPTURE_WAIT_MS);
 
-  String objectName;
-  String signedUrl = requestUploadUrl(objectName);
-  if (!signedUrl.length()) { Serial.println("[upload] no signed URL"); return; }
-
-  File f = sdOpen(path);
-  if (!f) { Serial.println("[sd] reopen for upload failed"); return; }
-  bool ok = uploadStream(signedUrl, f, f.size());
-  f.close();
-  Serial.printf("[upload] %s\n", ok ? "uploaded from SD ✓" : "FAILED");
-  if (ok) captureComplete(objectName);
+  uploadPendingPhotos();
 }
 
 void setup() {
@@ -134,9 +159,9 @@ void setup() {
   Serial.printf("[report] %s  (battery %d%%)\n", ok ? "SENT ✓" : "FAILED", battery);
 
 #if DO_CAPTURE_CYCLE
-  // 2.5) Basic telemetry test: capture -> save to SD -> wait 5 s -> upload.
-  if (sdInit()) captureSaveWaitUpload();
-  else Serial.println("[sd] init failed -> skipping capture cycle");
+  // 2.5) Basic telemetry test: capture -> save to flash -> wait 5 s -> upload.
+  if (flashInit()) captureSaveUpload();
+  else Serial.println("[flash] init failed -> skipping capture cycle");
 #endif
 
   // 3) Check for a pending command from the dashboard.

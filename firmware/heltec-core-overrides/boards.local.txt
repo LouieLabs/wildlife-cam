@@ -1,0 +1,22 @@
+# LouieLabs Wildlife Cam — HT-HC33 core override (boards.local.txt)
+#
+# The Arduino IDE automatically loads this file alongside the Heltec core's
+# boards.txt and lets it override values. It forces the HT-HC33 to use the FULL
+# 16MB of flash (the factory config only used 8MB) and warns early if a sketch
+# is bigger than one 2MB app slot.
+#
+# IMPORTANT: the partition LAYOUT is NOT set here. The Heltec core copies
+# variants/HT-HC33/partitions.csv into every build, and that file outranks any
+# build.partitions / "Partition Scheme" setting. So the OTA layout is forced by
+# replacing that variant file (see variants/HT-HC33/partitions.csv in this repo
+# folder), and this file only handles the flash SIZE and the size guard.
+#
+# "Force" mode (no Tools-menu dropdowns) is intentional: it makes the layout
+# student-proof so nobody can accidentally wipe stored photos.
+#
+# A MANUAL core reinstall removes this file AND restores the factory variant
+# table. The source of truth lives in the repo at firmware/heltec-core-overrides/
+# — re-copy BOTH after any reinstall. See README.md in that folder.
+
+HT-HC33.build.flash_size=16MB
+HT-HC33.upload.maximum_size=2097152

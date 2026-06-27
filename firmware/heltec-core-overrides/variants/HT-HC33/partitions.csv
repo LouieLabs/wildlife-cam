@@ -1,0 +1,21 @@
+# LouieLabs Wildlife Cam — HT-HC33 (ESP32-S3, 16MB flash) OTA-ready layout.
+#
+# This file REPLACES the Heltec factory variant table (an 8MB layout). The core
+# copies the variant folder's partitions.csv into every HT-HC33 build, which is
+# why it overrides any "Partition Scheme"/build.partitions setting. Putting our
+# table here is what forces the 16MB OTA layout for every sketch — no dropdowns.
+#
+# LOCK THIS IN ONCE. Re-running with a different layout would move the photo
+# storage region and erase any field photos already saved. The two 2MB app
+# slots (app0/app1) exist so firmware can be updated over Wi-Fi (OTA) without
+# ever touching the storage region below.
+#
+# Total flash: 16MB (0x1000000). Offsets/sizes are in hex bytes.
+#
+# Name,   Type, SubType,  Offset,    Size,      Flags
+nvs,      data, nvs,      0x9000,    0x5000,
+otadata,  data, ota,      0xe000,    0x2000,
+app0,     app,  ota_0,    0x10000,   0x200000,
+app1,     app,  ota_1,    0x210000,  0x200000,
+spiffs,   data, spiffs,   0x410000,  0xBE0000,
+coredump, data, coredump, 0xFF0000,  0x10000,
