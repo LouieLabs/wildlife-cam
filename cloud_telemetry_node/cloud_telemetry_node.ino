@@ -24,6 +24,7 @@
 #include "camera_capture.h"
 #include "flash_store.h"
 #include "pir_wake.h"
+#include "user_button.h"
 #include "dev_mode.h"
 
 // Survives deep sleep (kept in RTC memory) so we can count wake-ups in the log.
@@ -45,7 +46,8 @@ static void goToDeepSleep(uint32_t seconds) {
   // crashes, and it isn't needed -- timer deep sleep already powers down the
   // unused domains for us, leaving only the RTC timer running to wake us.
   esp_sleep_enable_timer_wakeup((uint64_t)seconds * 1000000ULL);
-  pirArmForWake();          // also wake on motion (settles the PIR first)
+  pirArmForWake();          // also wake on motion (ext0, settles the PIR first)
+  buttonArmForWake();       // also wake on a USER button press (ext1)
   esp_deep_sleep_start();   // <-- never returns; board reboots into setup() on wake
 }
 
@@ -135,12 +137,15 @@ void setup() {
   bootCount++;
   esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
   bool motionWake = (cause == ESP_SLEEP_WAKEUP_EXT0);    // PIR saw movement
+  bool buttonWake = (cause == ESP_SLEEP_WAKEUP_EXT1);    // USER button pressed
   bool timerWake  = (cause == ESP_SLEEP_WAKEUP_TIMER);   // periodic check-in
-  bool coldBoot   = (!motionWake && !timerWake);         // power-on / reset
-  const char *why = motionWake ? "MOTION wake" : timerWake ? "timer wake" : "cold boot";
+  bool coldBoot   = (!motionWake && !buttonWake && !timerWake);  // power-on / reset
+  const char *why = motionWake ? "MOTION wake" : buttonWake ? "BUTTON wake"
+                  : timerWake  ? "timer wake"  : "cold boot";
   Serial.printf("\n=== wake #%u (wake reason: %d, %s) ===\n", bootCount, (int)cause, why);
 
-  pirInit();   // PIR signal pin -> input (also needed before re-arming for sleep)
+  pirInit();      // PIR signal pin   -> input (also needed before re-arming for sleep)
+  buttonInit();   // USER button pin  -> input
 
   // 0) On a cold boot only, offer DEV MODE. A developer (computer on the USB
   //    serial) presses a key -> Wi-Fi hotspot + website, stay awake. Otherwise
@@ -170,8 +175,8 @@ void setup() {
   //      plain timer check-in we skip the new photo but still flush anything
   //      left from a previous failed upload. Either way nothing is lost.
   if (flashInit()) {
-    if (motionWake || coldBoot) captureSaveUpload();   // new photo + flush pending
-    else                        uploadPendingPhotos(); // timer wake: retry leftovers only
+    if (motionWake || buttonWake || coldBoot) captureSaveUpload();  // new photo + flush
+    else                                      uploadPendingPhotos();// timer: retry only
   } else {
     Serial.println("[flash] init failed -> skipping capture cycle");
   }
