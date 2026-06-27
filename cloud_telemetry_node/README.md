@@ -44,7 +44,8 @@ solar/USB charger can't accidentally flip a field unit into Wi-Fi mode. Battery
 - **Status:** HTTPS `PUT` to `…/devices/<id>/state.json` with
   `{status, battery, secret, updatedAt}`. The database rule accepts it only
   because the secret matches the registry.
-- **Command:** HTTPS `GET` of `…/devices/<id>/command.json` (public-read).
+- **Command:** `POST /api/command-poll` (with the API key); the backend reads
+  the now-private command path with admin credentials and returns it.
 - **Photo (on `take_picture`):** `POST /api/get-upload-url` (with the API key) →
   PUT the JPEG to the signed link → `POST /api/capture-complete`, which clears
   the command and records the capture in Firestore. The dashboard then shows the

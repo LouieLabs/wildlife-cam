@@ -96,27 +96,41 @@ bool reportStatus(const char *status, int batteryPct, long long updatedAt) {
   return code == 200;
 }
 
+// Defined below in the photo-upload section; declared here so getCommand() can
+// reuse it to pull the "command" field out of the JSON response.
+static String jsonStringField(const String &json, const char *key);
+
 // ---------------------------------------------------------------------------
-// Command poll: HTTPS GET /devices/<id>/command.json
+// Command poll: HTTP POST /api/command-poll (authenticated via the backend)
+// The database's command path is no longer public, so we ask the web app for
+// the pending command instead of reading the database directly -- same shared
+// key the upload flow already uses.
 // ---------------------------------------------------------------------------
 String getCommand() {
-  String url = String("https://") + RTDB_HOST + "/devices/" + DEVICE_ID + "/command.json";
+  String url = String(BACKEND_BASE_URL) + "/api/command-poll";
+  // Match the transport to the URL scheme (deployed backend is https://, a
+  // local dev server is http://) -- same approach as requestUploadUrl().
+  bool secure = url.startsWith("https:");
+  WiFiClient plain;
+  WiFiClientSecure tls;
+  if (secure) tls.setInsecure();   // skip cert check (testing); see README
+  HTTPClient http;
+  if (!http.begin(secure ? (WiFiClient &)tls : (WiFiClient &)plain, url)) return "idle";
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("x-camera-api-key", CAMERA_API_KEY);
 
-  WiFiClientSecure client;
-  client.setInsecure();
-  HTTPClient https;
-  if (!https.begin(client, url)) return "";
-  int code = https.GET();
-  String raw = (code == 200) ? https.getString() : "";
-  https.end();
-
-  // RTDB returns a JSON string like "take_picture" (with quotes) or "null".
-  raw.trim();
-  if (raw == "null" || raw.length() == 0) return "idle";
-  if (raw.startsWith("\"") && raw.endsWith("\"") && raw.length() >= 2) {
-    raw = raw.substring(1, raw.length() - 1);
+  String reqBody = String("{\"deviceId\":\"") + DEVICE_ID + "\"}";
+  int code = http.POST(reqBody);
+  String resp = (code == 200) ? http.getString() : "";
+  http.end();
+  if (code != 200) {
+    Serial.printf("[command] command-poll HTTP %d\n", code);
+    return "idle";
   }
-  return raw;
+
+  // Response is JSON like {"deviceId":"...","command":"take_picture"}.
+  String cmd = jsonStringField(resp, "command");
+  return cmd.length() ? cmd : "idle";
 }
 
 // ---------------------------------------------------------------------------

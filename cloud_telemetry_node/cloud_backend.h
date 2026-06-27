@@ -22,8 +22,8 @@ long getEpochSeconds(uint32_t timeoutMs = 8000);
 // Returns true on HTTP 200.
 bool reportStatus(const char *status, int batteryPct, long long updatedAt);
 
-// Read this device's pending command from /devices/<id>/command (public read).
-// Returns e.g. "take_picture" / "idle", or "" on error.
+// Ask the backend for this device's pending command (via /api/command-poll,
+// authenticated with the camera key). Returns e.g. "take_picture" / "idle".
 String getCommand();
 
 // --- Photo upload flow (used when the command is "take_picture") ------------

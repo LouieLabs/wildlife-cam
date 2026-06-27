@@ -5,9 +5,10 @@ import { requireLouieLabsUser, HttpError } from '@/lib/requireLouieLabsUser';
 export const runtime = 'nodejs';
 
 // Downstream commands to a camera (e.g. "take_picture"). A signed-in Louie Labs
-// user sets the command; the camera polls /devices/<id>/command (public read --
-// commands are not secret) and acts on it. The server (admin) is the only thing
-// allowed to WRITE the command, so a stranger cannot order a camera around.
+// user sets the command; the camera fetches it from /api/command-poll (which
+// reads the now-private command path with admin credentials) and acts on it.
+// The server (admin) is the only thing allowed to WRITE the command, so a
+// stranger cannot order a camera around.
 const ALLOWED = new Set(['take_picture', 'reboot', 'idle']);
 
 export async function POST(req: NextRequest) {

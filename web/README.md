@@ -34,7 +34,7 @@ limitation, not a choice.
 | --- | --- |
 | Who can register / command devices | A student signed in with a real **@louielabs.com Google account**, verified on the server (`requireLouieLabsUser`) |
 | Device secret | **Random 10-char** secret (`XXX-XXX-XXXX`), server-generated, unrelated to the MAC. Stored in clear for recovery; never publicly readable |
-| Realtime Database | Locked. Devices may only WRITE `/devices/<id>/state` if their secret matches the registry. `/devices/<id>/command` is public-READ only (commands aren't secret). Everything else is closed |
+| Realtime Database | Locked. Devices may only WRITE `/devices/<id>/state` if their secret matches the registry. `/devices/<id>/command` is fully private — cameras fetch commands via `/api/command-poll` (admin read). Everything else is closed |
 | Firestore | Fully locked to clients; all detection reads/writes go through authenticated server routes using the Admin SDK |
 | Cloud login | **Keyless** Application Default Credentials with service-account impersonation — no JSON key files anywhere |
 
