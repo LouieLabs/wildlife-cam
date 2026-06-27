@@ -23,9 +23,21 @@ async function bearer(): Promise<string> {
   return token;
 }
 
+// Defense-in-depth: reject any path that isn't strictly slash-separated segments
+// of [A-Za-z0-9_-]. This blocks path traversal and query/fragment injection
+// (".", "?", "#", "$", "[", "]", "//", leading/trailing "/") no matter what a
+// caller passes -- so safety never depends on every caller remembering to
+// validate its own ids.
+function safePath(path: string): string {
+  if (!/^[A-Za-z0-9_-]+(\/[A-Za-z0-9_-]+)*$/.test(path)) {
+    throw new Error(`unsafe RTDB path: ${JSON.stringify(path)}`);
+  }
+  return path;
+}
+
 // path is like "devices/pond_cam_01/command" (no leading slash, no ".json").
 export async function rtdbGet<T = any>(path: string): Promise<T | null> {
-  const res = await fetch(`${RTDB}/${path}.json`, {
+  const res = await fetch(`${RTDB}/${safePath(path)}.json`, {
     headers: { Authorization: `Bearer ${await bearer()}` },
   });
   if (!res.ok) throw new Error(`RTDB GET ${path} -> ${res.status}`);
@@ -33,7 +45,7 @@ export async function rtdbGet<T = any>(path: string): Promise<T | null> {
 }
 
 export async function rtdbSet(path: string, value: unknown): Promise<void> {
-  const res = await fetch(`${RTDB}/${path}.json`, {
+  const res = await fetch(`${RTDB}/${safePath(path)}.json`, {
     method: 'PUT',
     headers: { Authorization: `Bearer ${await bearer()}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(value),
