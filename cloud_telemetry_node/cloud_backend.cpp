@@ -136,11 +136,16 @@ static String jsonStringField(const String &json, const char *key) {
 }
 
 String requestUploadUrl(String &objectNameOut) {
-  // Backend (the web app) is plain HTTP during testing -> WiFiClient.
-  WiFiClient client;
-  HTTPClient http;
   String url = String(BACKEND_BASE_URL) + "/api/get-upload-url";
-  if (!http.begin(client, url)) return "";
+  // Pick the transport from the URL scheme: the deployed Cloud Run backend is
+  // https://, a local `npm run dev` server is http://. (WiFiClientSecure is a
+  // WiFiClient, so the same HTTPClient.begin overload takes either.)
+  bool secure = url.startsWith("https:");
+  WiFiClient plain;
+  WiFiClientSecure tls;
+  if (secure) tls.setInsecure();   // skip cert check (testing); see README
+  HTTPClient http;
+  if (!http.begin(secure ? (WiFiClient &)tls : (WiFiClient &)plain, url)) return "";
   http.addHeader("Content-Type", "application/json");
   http.addHeader("x-camera-api-key", CAMERA_API_KEY);
 
@@ -183,10 +188,13 @@ bool uploadStream(const String &signedUrl, Stream &stream, size_t len) {
 }
 
 bool captureComplete(const String &objectName) {
-  WiFiClient client;
-  HTTPClient http;
   String url = String(BACKEND_BASE_URL) + "/api/capture-complete";
-  if (!http.begin(client, url)) return false;
+  bool secure = url.startsWith("https:");
+  WiFiClient plain;
+  WiFiClientSecure tls;
+  if (secure) tls.setInsecure();   // skip cert check (testing); see README
+  HTTPClient http;
+  if (!http.begin(secure ? (WiFiClient &)tls : (WiFiClient &)plain, url)) return false;
   http.addHeader("Content-Type", "application/json");
   http.addHeader("x-camera-api-key", CAMERA_API_KEY);
 

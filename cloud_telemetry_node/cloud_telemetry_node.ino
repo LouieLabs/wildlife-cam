@@ -22,7 +22,9 @@
 #include "secrets.h"
 #include "cloud_backend.h"
 #include "camera_capture.h"
-#include "sd_store.h"
+#include "flash_store.h"
+#include "pir_wake.h"
+#include "user_button.h"
 #include "dev_mode.h"
 
 // Survives deep sleep (kept in RTC memory) so we can count wake-ups in the log.
@@ -38,11 +40,14 @@ static void goToDeepSleep(uint32_t seconds) {
   WiFi.disconnect(true);
   WiFi.mode(WIFI_OFF);
 
-  // Deep sleep with a timer wake. We deliberately do NOT call
-  // esp_sleep_pd_config() here: on this Heltec/ESP-IDF build it asserts and
+  // Deep sleep with TWO wake sources: the timer (periodic check-in) and the PIR
+  // motion sensor (ext0). Whichever fires first wakes us. We deliberately do NOT
+  // call esp_sleep_pd_config() here: on this Heltec/ESP-IDF build it asserts and
   // crashes, and it isn't needed -- timer deep sleep already powers down the
   // unused domains for us, leaving only the RTC timer running to wake us.
   esp_sleep_enable_timer_wakeup((uint64_t)seconds * 1000000ULL);
+  pirArmForWake();          // also wake on motion (ext0, settles the PIR first)
+  buttonArmForWake();       // also wake on a USER button press (ext1)
   esp_deep_sleep_start();   // <-- never returns; board reboots into setup() on wake
 }
 
@@ -68,11 +73,45 @@ static void doTakePicture() {
   cameraDeinit();   // power the camera back down before we sleep
 }
 
-// Basic telemetry test (no PIR yet): capture a photo, SAVE IT TO SD, wait 5 s,
-// then upload that saved file to the cloud. The 5 s stands in for the future
-// "wait for a lull" step. The photo stays on SD so it's never lost.
-static void captureSaveWaitUpload() {
-  Serial.println("[cycle] capture -> SD -> wait -> upload");
+// Upload every photo still sitting in flash (this cycle's plus any leftovers
+// from earlier cycles whose upload failed), oldest first. A file is deleted
+// ONLY after the backend confirms the upload, so nothing is lost on a flaky
+// link -- it just gets retried on the next wake. We stop on the first failure
+// (usually the network is down) and try again next time.
+static void uploadPendingPhotos() {
+  String pending[16];
+  int n = flashListPending(pending, 16);
+  if (n == 0) { Serial.println("[cycle] nothing to upload"); return; }
+  Serial.printf("[cycle] %d photo(s) pending upload\n", n);
+
+  for (int i = 0; i < n; i++) {
+    String objectName;
+    String signedUrl = requestUploadUrl(objectName);
+    if (!signedUrl.length()) {
+      Serial.println("[upload] no signed URL -> stopping, retry next wake");
+      break;
+    }
+    File f = flashOpen(pending[i]);
+    if (!f) { Serial.printf("[flash] reopen %s failed -> skip\n", pending[i].c_str()); continue; }
+    bool ok = uploadStream(signedUrl, f, f.size());
+    f.close();
+    if (ok) {
+      captureComplete(objectName);
+      flashDelete(pending[i]);   // safe to remove now: the upload is confirmed
+      Serial.println("[upload] uploaded from flash ✓");
+    } else {
+      Serial.println("[upload] FAILED -> keeping file for retry next wake");
+      break;
+    }
+  }
+  Serial.printf("[flash] room for ~%d more photos\n", picsRemaining());
+}
+
+// Basic telemetry test (no PIR yet): capture a photo, SAVE IT TO FLASH, wait
+// 5 s, then upload. The 5 s stands in for the future "wait for a lull" step.
+// The photo stays in flash until its upload is confirmed, so it's never lost.
+static void captureSaveUpload() {
+  Serial.println("[cycle] capture -> flash -> wait -> upload");
   if (!cameraInit()) { Serial.println("[cam] init failed"); return; }
 
   camera_fb_t *fb = cameraCapture();
@@ -81,34 +120,32 @@ static void captureSaveWaitUpload() {
 
   long epoch = getEpochSeconds();
   long long tsMs = epoch ? (long long)epoch * 1000LL : 0LL;
-  String path = sdSaveJpeg(fb->buf, fb->len, tsMs, ++captureSeq);
+  String path = flashSaveJpeg(fb->buf, fb->len, tsMs, ++captureSeq);
   cameraReturn(fb);
   cameraDeinit();   // done with the camera; save power during the wait + upload
-  if (!path.length()) { Serial.println("[sd] save failed -> skip upload"); return; }
+  if (!path.length()) { Serial.println("[flash] save failed -> skip upload"); return; }
 
   Serial.printf("[cycle] waiting %d ms before upload...\n", CAPTURE_WAIT_MS);
   delay(CAPTURE_WAIT_MS);
 
-  String objectName;
-  String signedUrl = requestUploadUrl(objectName);
-  if (!signedUrl.length()) { Serial.println("[upload] no signed URL"); return; }
-
-  File f = sdOpen(path);
-  if (!f) { Serial.println("[sd] reopen for upload failed"); return; }
-  bool ok = uploadStream(signedUrl, f, f.size());
-  f.close();
-  Serial.printf("[upload] %s\n", ok ? "uploaded from SD ✓" : "FAILED");
-  if (ok) captureComplete(objectName);
+  uploadPendingPhotos();
 }
 
 void setup() {
   Serial.begin(115200);
   delay(300);
   bootCount++;
-  bool coldBoot = (esp_sleep_get_wakeup_cause() != ESP_SLEEP_WAKEUP_TIMER);
-  Serial.printf("\n=== wake #%u (wake reason: %d, %s) ===\n",
-                bootCount, (int)esp_sleep_get_wakeup_cause(),
-                coldBoot ? "cold boot" : "timer wake");
+  esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
+  bool motionWake = (cause == ESP_SLEEP_WAKEUP_EXT0);    // PIR saw movement
+  bool buttonWake = (cause == ESP_SLEEP_WAKEUP_EXT1);    // USER button pressed
+  bool timerWake  = (cause == ESP_SLEEP_WAKEUP_TIMER);   // periodic check-in
+  bool coldBoot   = (!motionWake && !buttonWake && !timerWake);  // power-on / reset
+  const char *why = motionWake ? "MOTION wake" : buttonWake ? "BUTTON wake"
+                  : timerWake  ? "timer wake"  : "cold boot";
+  Serial.printf("\n=== wake #%u (wake reason: %d, %s) ===\n", bootCount, (int)cause, why);
+
+  pirInit();      // PIR signal pin   -> input (also needed before re-arming for sleep)
+  buttonInit();   // USER button pin  -> input
 
   // 0) On a cold boot only, offer DEV MODE. A developer (computer on the USB
   //    serial) presses a key -> Wi-Fi hotspot + website, stay awake. Otherwise
@@ -134,9 +171,15 @@ void setup() {
   Serial.printf("[report] %s  (battery %d%%)\n", ok ? "SENT ✓" : "FAILED", battery);
 
 #if DO_CAPTURE_CYCLE
-  // 2.5) Basic telemetry test: capture -> save to SD -> wait 5 s -> upload.
-  if (sdInit()) captureSaveWaitUpload();
-  else Serial.println("[sd] init failed -> skipping capture cycle");
+  // 2.5) Capture on MOTION (and on a cold boot, for a first test shot). On a
+  //      plain timer check-in we skip the new photo but still flush anything
+  //      left from a previous failed upload. Either way nothing is lost.
+  if (flashInit()) {
+    if (motionWake || buttonWake || coldBoot) captureSaveUpload();  // new photo + flush
+    else                                      uploadPendingPhotos();// timer: retry only
+  } else {
+    Serial.println("[flash] init failed -> skipping capture cycle");
+  }
 #endif
 
   // 3) Check for a pending command from the dashboard.

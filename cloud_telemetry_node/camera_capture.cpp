@@ -21,6 +21,10 @@
 #define HREF_GPIO_NUM   39
 #define PCLK_GPIO_NUM   21
 
+// Throwaway frames after init so exposure/white-balance settles before the
+// real shot (the first frame after power-up is often dark/green).
+#define CAMERA_WARMUP_FRAMES  3
+
 bool cameraInit() {
   camera_config_t config;
   config.ledc_channel = LEDC_CHANNEL_0;
@@ -53,6 +57,15 @@ bool cameraInit() {
   if (err != ESP_OK) {
     Serial.printf("[cam] init failed: 0x%x\n", err);
     return false;
+  }
+
+  // Throw away a few frames so auto-exposure / white-balance can settle -- the
+  // first frames after power-up are often dark or green. (Adopted from Ethan's
+  // motion-capture sketch.)
+  for (int i = 0; i < CAMERA_WARMUP_FRAMES; i++) {
+    camera_fb_t *warm = esp_camera_fb_get();
+    if (warm) esp_camera_fb_return(warm);
+    delay(60);
   }
   return true;
 }
