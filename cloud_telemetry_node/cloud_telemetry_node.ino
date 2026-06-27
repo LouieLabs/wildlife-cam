@@ -23,6 +23,7 @@
 #include "cloud_backend.h"
 #include "camera_capture.h"
 #include "flash_store.h"
+#include "pir_wake.h"
 #include "dev_mode.h"
 
 // Survives deep sleep (kept in RTC memory) so we can count wake-ups in the log.
@@ -38,11 +39,13 @@ static void goToDeepSleep(uint32_t seconds) {
   WiFi.disconnect(true);
   WiFi.mode(WIFI_OFF);
 
-  // Deep sleep with a timer wake. We deliberately do NOT call
-  // esp_sleep_pd_config() here: on this Heltec/ESP-IDF build it asserts and
+  // Deep sleep with TWO wake sources: the timer (periodic check-in) and the PIR
+  // motion sensor (ext0). Whichever fires first wakes us. We deliberately do NOT
+  // call esp_sleep_pd_config() here: on this Heltec/ESP-IDF build it asserts and
   // crashes, and it isn't needed -- timer deep sleep already powers down the
   // unused domains for us, leaving only the RTC timer running to wake us.
   esp_sleep_enable_timer_wakeup((uint64_t)seconds * 1000000ULL);
+  pirArmForWake();          // also wake on motion (settles the PIR first)
   esp_deep_sleep_start();   // <-- never returns; board reboots into setup() on wake
 }
 
@@ -130,10 +133,14 @@ void setup() {
   Serial.begin(115200);
   delay(300);
   bootCount++;
-  bool coldBoot = (esp_sleep_get_wakeup_cause() != ESP_SLEEP_WAKEUP_TIMER);
-  Serial.printf("\n=== wake #%u (wake reason: %d, %s) ===\n",
-                bootCount, (int)esp_sleep_get_wakeup_cause(),
-                coldBoot ? "cold boot" : "timer wake");
+  esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
+  bool motionWake = (cause == ESP_SLEEP_WAKEUP_EXT0);    // PIR saw movement
+  bool timerWake  = (cause == ESP_SLEEP_WAKEUP_TIMER);   // periodic check-in
+  bool coldBoot   = (!motionWake && !timerWake);         // power-on / reset
+  const char *why = motionWake ? "MOTION wake" : timerWake ? "timer wake" : "cold boot";
+  Serial.printf("\n=== wake #%u (wake reason: %d, %s) ===\n", bootCount, (int)cause, why);
+
+  pirInit();   // PIR signal pin -> input (also needed before re-arming for sleep)
 
   // 0) On a cold boot only, offer DEV MODE. A developer (computer on the USB
   //    serial) presses a key -> Wi-Fi hotspot + website, stay awake. Otherwise
@@ -159,9 +166,15 @@ void setup() {
   Serial.printf("[report] %s  (battery %d%%)\n", ok ? "SENT ✓" : "FAILED", battery);
 
 #if DO_CAPTURE_CYCLE
-  // 2.5) Basic telemetry test: capture -> save to flash -> wait 5 s -> upload.
-  if (flashInit()) captureSaveUpload();
-  else Serial.println("[flash] init failed -> skipping capture cycle");
+  // 2.5) Capture on MOTION (and on a cold boot, for a first test shot). On a
+  //      plain timer check-in we skip the new photo but still flush anything
+  //      left from a previous failed upload. Either way nothing is lost.
+  if (flashInit()) {
+    if (motionWake || coldBoot) captureSaveUpload();   // new photo + flush pending
+    else                        uploadPendingPhotos(); // timer wake: retry leftovers only
+  } else {
+    Serial.println("[flash] init failed -> skipping capture cycle");
+  }
 #endif
 
   // 3) Check for a pending command from the dashboard.
