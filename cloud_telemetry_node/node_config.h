@@ -12,11 +12,13 @@
 // Realtime Database host -- no "https://", no trailing slash.
 #define RTDB_HOST        "louielabs-animal-cams-default-rtdb.firebaseio.com"
 
-// Base URL of the web app (for photo upload links). Set this to your computer's
-// LAN address while testing against `npm run dev` (NOT localhost) -- Next prints
-// a "Network:" URL on startup. This is dev-machine specific, so it ships as a
-// placeholder; update it locally (it changes when your DHCP lease does).
-#define BACKEND_BASE_URL "http://YOUR_DEV_MACHINE:3000"
+// Base URL of the web app (for photo upload + capture-complete). The firmware
+// auto-uses TLS for an https:// URL and plain HTTP otherwise, so either works:
+//   * FIELD / PRODUCTION -> the deployed Cloud Run backend (HTTPS). Uploads land
+//     in the bucket tagged under prod/.
+//   * DEV -> your computer's LAN address while running `npm run dev`
+//     (e.g. http://192.168.1.97:3000, NOT localhost). Uploads tag under dev/.
+#define BACKEND_BASE_URL "https://wildlife-dashboard-ee47ntxftq-uw.a.run.app"
 
 // Basic telemetry test: on every wake, capture a photo, save it to internal
 // flash (LittleFS), wait 5 s, then upload it to the cloud (and any photos left
