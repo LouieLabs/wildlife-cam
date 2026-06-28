@@ -241,9 +241,14 @@ export default function ProvisionPage() {
         </>
       )}
 
-      <button onClick={provision} disabled={!canSubmit} style={{ padding: '10px 16px', fontWeight: 600 }}>
-        {busy ? 'Provisioning…' : 'Provision camera'}
-      </button>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <button onClick={provision} disabled={!canSubmit} style={{ padding: '10px 16px', fontWeight: 600, flexShrink: 0 }}>
+          {busy ? 'Provisioning…' : 'Provision camera'}
+        </button>
+        <span style={{ fontSize: 13, color: '#555' }}>
+          In the pop-up, select the line with <code>cu.usbserial</code> (or similar) in it.
+        </span>
+      </div>
 
       {result && (
         <div style={{ marginTop: 16, padding: 12, background: '#eef9ee', border: '1px solid #bcdcbc', borderRadius: 8 }}>
