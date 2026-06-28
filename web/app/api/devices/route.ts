@@ -22,13 +22,19 @@ export async function GET(req: NextRequest) {
     const list = Object.keys(devices).map((id) => {
       const node = devices[id] || {};
       const state = node.state || {};
+      const m = meta[id] || {};
       return {
         deviceId: id,
         status: state.status ?? 'unknown',
         battery: typeof state.battery === 'number' ? state.battery : null,
         lastUpdate: state.updatedAt ?? null,
         command: node.command ?? 'idle',
-        mac: meta[id]?.mac ?? null,
+        mac: m.mac ?? null,
+        // Expected-network metadata for debugging ("expects Aloha, last seen
+        // 2h ago"). SSIDs only -- passwords are never stored on the server.
+        wifiSsid:  typeof m.wifiSsid  === 'string' ? m.wifiSsid  : null,
+        halowSsid: typeof m.halowSsid === 'string' ? m.halowSsid : null,
+        netMode:   typeof m.netMode   === 'string' ? m.netMode   : null,
         // NOTE: state.secret is intentionally NOT included in the response.
       };
     });

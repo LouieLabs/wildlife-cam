@@ -5,9 +5,22 @@ import { generateDeviceSecret } from '@/lib/secret';
 
 export const runtime = 'nodejs';
 
+// Trim, drop control chars, cap at WPA's 32-octet SSID limit. Empty in -> ''.
+function sanitizeSsid(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  // eslint-disable-next-line no-control-regex
+  const cleaned = raw.replace(/[\x00-\x1f\x7f]/g, '').trim();
+  return cleaned.slice(0, 32);
+}
+
 // Authenticated device registration. A signed-in Louie Labs student submits a
 // device ID + MAC, and the SERVER mints a random secret. The MAC is only an
 // identifier here -- it is NOT the secret.
+//
+// Optional non-secret metadata: the EXPECTED Wi-Fi / HaLow SSID and the chosen
+// network mode. We store these for debugging ("expects Aloha, last seen 2h
+// ago") -- but NEVER any passwords/PSKs (those stay board-only over USB
+// serial). Any password-shaped field in the body is dropped here defensively.
 export async function POST(req: NextRequest) {
   try {
     const user = await requireLouieLabsUser(req);
@@ -26,6 +39,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'MAC must be 12 hex characters' }, { status: 400 });
     }
 
+    // Optional non-secret network metadata. Passwords/PSKs are NEVER read from
+    // the body -- only SSIDs (which are broadcast publicly) and the mode.
+    const wifiSsid  = sanitizeSsid(body.wifiSsid);
+    const halowSsid = sanitizeSsid(body.halowSsid);
+    const rawMode   = String(body.netMode || '').toLowerCase().trim();
+    const netMode   = (['wifi', 'halow', 'both'] as const).includes(rawMode as any)
+      ? (rawMode as 'wifi' | 'halow' | 'both')
+      : '';
+
     const secret = generateDeviceSecret();
 
     // Registry + metadata live in the Realtime Database (admin-only paths).
@@ -35,6 +57,9 @@ export async function POST(req: NextRequest) {
       mac,
       registeredBy: user.email,
       registeredAt: Date.now(),
+      ...(wifiSsid  ? { wifiSsid }  : {}),
+      ...(halowSsid ? { halowSsid } : {}),
+      ...(netMode   ? { netMode }   : {}),
     });
     // Seed an idle command so the device has something to poll on first boot.
     await rtdbSet(`devices/${deviceId}/command`, 'idle');

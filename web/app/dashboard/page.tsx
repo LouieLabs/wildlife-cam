@@ -10,7 +10,31 @@ type Device = {
   command: string;
   mac: string | null;
   lastUpdate: number | null;
+  wifiSsid: string | null;
+  halowSsid: string | null;
+  netMode: 'wifi' | 'halow' | 'both' | null;
 };
+
+// "2 h ago", "3 d ago", "—" if unknown. Coarse: surfaces "offline > 24h" at
+// the dashboard glance, exact wall-clock isn't useful for a sleeping camera.
+function relativeAge(ts: number | null): string {
+  if (!ts) return '—';
+  const ms = Date.now() - ts;
+  if (ms < 60_000) return 'just now';
+  if (ms < 3_600_000) return `${Math.floor(ms / 60_000)} min ago`;
+  if (ms < 86_400_000) return `${Math.floor(ms / 3_600_000)} h ago`;
+  return `${Math.floor(ms / 86_400_000)} d ago`;
+}
+
+function networkLabel(d: Device): string | null {
+  const parts: string[] = [];
+  if (d.wifiSsid)  parts.push(`${d.wifiSsid} (2.4 GHz)`);
+  if (d.halowSsid) parts.push(`${d.halowSsid} (HaLow)`);
+  if (parts.length === 0) return null;
+  if (parts.length === 1) return parts[0];
+  // "both" -- show in preferred order
+  return parts.join(' + ');
+}
 
 type Detection = {
   id: string;
@@ -113,17 +137,25 @@ export default function DashboardPage() {
         <p>No cameras reporting yet.</p>
       ) : (
         <div style={{ display: 'grid', gap: 12 }}>
-          {devices.map((d) => (
-            <div key={d.deviceId} style={{ padding: 12, background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 8 }}>
-              <b>{d.deviceId}</b> — {d.status === 'online' ? '🟢 online' : '⚪ ' + d.status}
-              <div>Battery: {d.battery ?? '—'}%</div>
-              <div style={{ fontSize: 12, opacity: 0.7 }}>MAC: {d.mac ?? '—'}</div>
-              <div style={{ fontSize: 12, opacity: 0.7 }}>Pending command: {d.command}</div>
-              <button onClick={() => sendCommand(d.deviceId, 'take_picture')} style={{ marginTop: 8 }}>
-                📸 Take picture
-              </button>
-            </div>
-          ))}
+          {devices.map((d) => {
+            const net = networkLabel(d);
+            return (
+              <div key={d.deviceId} style={{ padding: 12, background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 8 }}>
+                <b>{d.deviceId}</b> — {d.status === 'online' ? '🟢 online' : '⚪ ' + d.status}
+                <div>Battery: {d.battery ?? '—'}%</div>
+                <div style={{ fontSize: 12, opacity: 0.7 }}>MAC: {d.mac ?? '—'}</div>
+                {net && (
+                  <div style={{ fontSize: 12, opacity: 0.7 }}>
+                    Expects: {net} · last seen {relativeAge(d.lastUpdate)}
+                  </div>
+                )}
+                <div style={{ fontSize: 12, opacity: 0.7 }}>Pending command: {d.command}</div>
+                <button onClick={() => sendCommand(d.deviceId, 'take_picture')} style={{ marginTop: 8 }}>
+                  📸 Take picture
+                </button>
+              </div>
+            );
+          })}
         </div>
       )}
 

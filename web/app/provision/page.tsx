@@ -163,9 +163,19 @@ export default function ProvisionPage() {
       append('Camera MAC: ' + mac);
 
       append('Registering on the dashboard…');
+      // Send the EXPECTED network names so an admin can later look at the
+      // dashboard and see "this board expects 'Aloha' (2.4 GHz)". We send the
+      // SSIDs (non-secret -- they're broadcast publicly) and the chosen mode,
+      // but NEVER the password/PSK -- those stay board-only over USB serial.
       const res = await authedFetch('/api/register-device', {
         method: 'POST',
-        body: JSON.stringify({ deviceId: id, mac: mac.replace(/[^0-9a-fA-F]/g, '') }),
+        body: JSON.stringify({
+          deviceId: id,
+          mac: mac.replace(/[^0-9a-fA-F]/g, ''),
+          netMode: mode,
+          wifiSsid:  wantWifi  ? wifiSsid  : '',
+          halowSsid: wantHalow ? halowSsid : '',
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'register-device failed');
