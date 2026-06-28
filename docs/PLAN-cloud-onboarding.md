@@ -127,6 +127,19 @@ and can't tell a human apart from a scheduler.
   *active* at the set time and each camera applies it on its **next wake** (within
   its duty cycle), not instantly.
 
+## Smaller enhancements (backlog)
+- **Store each board's expected network name (debug aid).** At provision time, also
+  save `wifiSsid` / `halowSsid` / `net_mode` to `device_meta` (admin-only) — **never
+  the password/PSK** (SSIDs are non-secret/broadcast; passwords stay board-only over
+  serial). Show it in the dashboard next to last-seen so an admin can diagnose
+  "expects `Aloha`, hasn't checked in since 2pm → network changed/down?". Web-only,
+  no firmware — quick win.
+- **Device rename.** A name *is* the `device_id` (cloud key + board NVS), so a rename
+  must update both. Either USB-based (copy cloud entry old→new + re-provision the
+  board) or **over-the-air via a `rename:<newId>` command** that has the board rewrite
+  its NVS id — the latter reuses Phase 4's command plumbing, so do it with/after OTA.
+  Guard the edge cases (board offline, when to delete the old id, re-rename loops).
+
 ---
 
 ## Cross-cutting
