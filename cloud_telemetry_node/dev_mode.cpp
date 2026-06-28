@@ -1,5 +1,6 @@
 #include "dev_mode.h"
 #include "node_config.h"
+#include "device_config.h"
 #include "secrets.h"
 #include "cloud_backend.h"     // readBatteryPercent()
 #include "camera_capture.h"
@@ -48,7 +49,7 @@ static esp_err_t index_handler(httpd_req_t *req) {
     "<img id=v src='/snapshot' style='max-width:100%%;border:1px solid #ccc;border-radius:8px'>"
     "<script>setInterval(function(){document.getElementById('v').src='/snapshot?'+Date.now();},1500);</script>"
     "</body></html>",
-    DEVICE_ID, DEVICE_ID, readBatteryPercent(), WiFi.softAPIP().toString().c_str());
+    g_cfg.deviceId.c_str(), g_cfg.deviceId.c_str(), readBatteryPercent(), WiFi.softAPIP().toString().c_str());
   httpd_resp_set_type(req, "text/html");
   return httpd_resp_send(req, html, strlen(html));
 }
@@ -73,7 +74,7 @@ void runDevMode() {
 
   // Self-contained hotspot so offsite dev needs no network/gateway: connect your
   // laptop/phone to this Wi-Fi, then open the printed address.
-  String ssid = String("wildcam-") + DEVICE_ID;
+  String ssid = String("wildcam-") + g_cfg.deviceId;
   WiFi.mode(WIFI_AP);
   WiFi.softAP(ssid.c_str(), DEV_AP_PASSWORD);
   Serial.printf("[dev] join Wi-Fi '%s' (pw: %s)\n", ssid.c_str(), DEV_AP_PASSWORD);
