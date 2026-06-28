@@ -9,13 +9,14 @@
 #include "time.h"
 
 // ---------------------------------------------------------------------------
-// Wi-Fi
+// Networking
 // ---------------------------------------------------------------------------
-bool wifiConnect(uint32_t timeoutMs) {
-  if (WiFi.status() == WL_CONNECTED) return true;
+
+// Associate to a 2.4 GHz AP (the native ESP32 radio). Returns true on connect.
+static bool wifiStaConnect(const String &ssid, const String &pass, uint32_t timeoutMs) {
   WiFi.mode(WIFI_STA);
-  WiFi.begin(g_cfg.wifiSsid.c_str(), g_cfg.wifiPass.c_str());
-  Serial.printf("[wifi] connecting to %s", g_cfg.wifiSsid.c_str());
+  WiFi.begin(ssid.c_str(), pass.c_str());
+  Serial.printf("[wifi] connecting to %s", ssid.c_str());
   uint32_t start = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - start < timeoutMs) {
     delay(300);
@@ -25,6 +26,31 @@ bool wifiConnect(uint32_t timeoutMs) {
   if (WiFi.status() == WL_CONNECTED) {
     Serial.printf("[wifi] connected, IP %s\n", WiFi.localIP().toString().c_str());
     return true;
+  }
+  return false;
+}
+
+// Get online per the provisioned net mode. HaLow and 2.4 GHz are separate
+// radios/networks; "both" tries HaLow first (production long-range) then falls
+// back to 2.4 GHz. NOTE: the HaLow radio is not wired into this build yet, so we
+// log and skip it rather than pretend -- 2.4 GHz works today.
+bool wifiConnect(uint32_t timeoutMs) {
+  if (WiFi.status() == WL_CONNECTED) return true;
+
+  bool wantHalow = (g_cfg.netMode == "halow" || g_cfg.netMode == "both");
+  bool wantWifi  = (g_cfg.netMode == "wifi"  || g_cfg.netMode == "both");
+
+  if (wantHalow) {
+    Serial.printf("[net] HaLow '%s' configured, but the HaLow radio is not enabled "
+                  "in this build -- skipping\n", g_cfg.halowSsid.c_str());
+  }
+  if (wantWifi && g_cfg.wifiSsid.length()) {
+    return wifiStaConnect(g_cfg.wifiSsid, g_cfg.wifiPass, timeoutMs);
+  }
+  if (wantHalow && !wantWifi) {
+    Serial.println("[net] HaLow-only and HaLow not yet supported in firmware -> cannot connect");
+  } else {
+    Serial.println("[net] no usable 2.4 GHz SSID configured -> cannot connect");
   }
   return false;
 }
