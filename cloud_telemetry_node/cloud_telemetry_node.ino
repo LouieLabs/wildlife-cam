@@ -26,6 +26,7 @@
 #include "pir_wake.h"
 #include "user_button.h"
 #include "dev_mode.h"
+#include "device_config.h"
 
 // Survives deep sleep (kept in RTC memory) so we can count wake-ups in the log.
 RTC_DATA_ATTR uint32_t bootCount = 0;
@@ -147,12 +148,28 @@ void setup() {
   pirInit();      // PIR signal pin   -> input (also needed before re-arming for sleep)
   buttonInit();   // USER button pin  -> input
 
+  // Load this board's identity + Wi-Fi from on-chip storage (NVS). Falls back to
+  // the compiled-in dev values (secrets.h / node_config.h) when NVS is empty, so
+  // bench boards keep working. One firmware image -> many cameras.
+  loadDeviceConfig();
+  Serial.printf("[config] device_id = %s (%s)\n", g_cfg.deviceId.c_str(),
+                g_cfg.provisioned ? "provisioned" : "NOT provisioned");
+
   // 0) On a cold boot only, offer DEV MODE. A developer (computer on the USB
   //    serial) presses a key -> Wi-Fi hotspot + website, stay awake. Otherwise
   //    fall through to the normal low-power FIELD behavior. Timer wakes skip this
   //    so deep-sleep cycles never pay the listen cost.
   if (coldBoot && devModeRequested(DEV_MODE_LISTEN_MS)) {
     runDevMode();   // never returns
+  }
+
+  // If this board was never provisioned (no Wi-Fi / id / secret from NVS or
+  // secrets.h), there's nothing useful to do in the field -- say how to fix it
+  // and sleep. Set it up with the dashboard's "Set up a camera" tool, or fill in
+  // secrets.h / node_config.h for bench testing.
+  if (!g_cfg.provisioned) {
+    Serial.println("[config] not provisioned -> sleeping (flash via dashboard, or set secrets.h)");
+    goToDeepSleep(SLEEP_SECONDS);
   }
 
   // 1) Get online. If Wi-Fi won't connect, don't waste battery -- just sleep.

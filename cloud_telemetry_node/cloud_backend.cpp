@@ -1,6 +1,7 @@
 #include "cloud_backend.h"
 #include "node_config.h"
 #include "secrets.h"
+#include "device_config.h"
 
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
@@ -13,8 +14,8 @@
 bool wifiConnect(uint32_t timeoutMs) {
   if (WiFi.status() == WL_CONNECTED) return true;
   WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  Serial.printf("[wifi] connecting to %s", WIFI_SSID);
+  WiFi.begin(g_cfg.wifiSsid.c_str(), g_cfg.wifiPass.c_str());
+  Serial.printf("[wifi] connecting to %s", g_cfg.wifiSsid.c_str());
   uint32_t start = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - start < timeoutMs) {
     delay(300);
@@ -66,7 +67,7 @@ long getEpochSeconds(uint32_t timeoutMs) {
 // Status report: HTTPS PUT to /devices/<id>/state.json
 // ---------------------------------------------------------------------------
 bool reportStatus(const char *status, int batteryPct, long long updatedAt) {
-  String url = String("https://") + RTDB_HOST + "/devices/" + DEVICE_ID + "/state.json";
+  String url = String("https://") + RTDB_HOST + "/devices/" + g_cfg.deviceId + "/state.json";
 
   // updatedAt is 64-bit (epoch ms), so format it with %lld to avoid overflow.
   char ts[24];
@@ -76,7 +77,7 @@ bool reportStatus(const char *status, int batteryPct, long long updatedAt) {
   String body = "{";
   body += "\"status\":\"" + String(status) + "\",";
   body += "\"battery\":" + String(batteryPct) + ",";
-  body += "\"secret\":\"" + String(DEVICE_SECRET) + "\",";
+  body += "\"secret\":\"" + g_cfg.deviceSecret + "\",";
   body += "\"updatedAt\":" + String(ts);
   body += "}";
 
@@ -119,7 +120,7 @@ String getCommand() {
   http.addHeader("Content-Type", "application/json");
   http.addHeader("x-camera-api-key", CAMERA_API_KEY);
 
-  String reqBody = String("{\"deviceId\":\"") + DEVICE_ID + "\"}";
+  String reqBody = String("{\"deviceId\":\"") + g_cfg.deviceId + "\"}";
   int code = http.POST(reqBody);
   String resp = (code == 200) ? http.getString() : "";
   http.end();
@@ -163,7 +164,7 @@ String requestUploadUrl(String &objectNameOut) {
   http.addHeader("Content-Type", "application/json");
   http.addHeader("x-camera-api-key", CAMERA_API_KEY);
 
-  String reqBody = String("{\"deviceId\":\"") + DEVICE_ID + "\"}";
+  String reqBody = String("{\"deviceId\":\"") + g_cfg.deviceId + "\"}";
   int code = http.POST(reqBody);
   String resp = (code == 200) ? http.getString() : "";
   http.end();
@@ -212,7 +213,7 @@ bool captureComplete(const String &objectName) {
   http.addHeader("Content-Type", "application/json");
   http.addHeader("x-camera-api-key", CAMERA_API_KEY);
 
-  String body = String("{\"deviceId\":\"") + DEVICE_ID +
+  String body = String("{\"deviceId\":\"") + g_cfg.deviceId +
                 "\",\"objectPath\":\"" + objectName + "\"}";
   int code = http.POST(body);
   http.end();
