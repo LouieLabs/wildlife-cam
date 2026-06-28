@@ -144,7 +144,7 @@ String getCommand() {
   HTTPClient http;
   if (!http.begin(secure ? (WiFiClient &)tls : (WiFiClient &)plain, url)) return "idle";
   http.addHeader("Content-Type", "application/json");
-  http.addHeader("x-camera-api-key", CAMERA_API_KEY);
+  http.addHeader("x-camera-api-key", g_cfg.cameraKey);
 
   String reqBody = String("{\"deviceId\":\"") + g_cfg.deviceId + "\"}";
   int code = http.POST(reqBody);
@@ -188,7 +188,7 @@ String requestUploadUrl(String &objectNameOut) {
   HTTPClient http;
   if (!http.begin(secure ? (WiFiClient &)tls : (WiFiClient &)plain, url)) return "";
   http.addHeader("Content-Type", "application/json");
-  http.addHeader("x-camera-api-key", CAMERA_API_KEY);
+  http.addHeader("x-camera-api-key", g_cfg.cameraKey);
 
   String reqBody = String("{\"deviceId\":\"") + g_cfg.deviceId + "\"}";
   int code = http.POST(reqBody);
@@ -237,7 +237,7 @@ bool captureComplete(const String &objectName) {
   HTTPClient http;
   if (!http.begin(secure ? (WiFiClient &)tls : (WiFiClient &)plain, url)) return false;
   http.addHeader("Content-Type", "application/json");
-  http.addHeader("x-camera-api-key", CAMERA_API_KEY);
+  http.addHeader("x-camera-api-key", g_cfg.cameraKey);
 
   String body = String("{\"deviceId\":\"") + g_cfg.deviceId +
                 "\",\"objectPath\":\"" + objectName + "\"}";

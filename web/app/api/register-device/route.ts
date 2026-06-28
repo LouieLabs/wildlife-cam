@@ -39,7 +39,14 @@ export async function POST(req: NextRequest) {
     // Seed an idle command so the device has something to poll on first boot.
     await rtdbSet(`devices/${deviceId}/command`, 'idle');
 
-    return NextResponse.json({ deviceId, mac, secret });
+    // cameraKey is the shared upload/command key, written to the board's NVS by
+    // the provisioning page so it never has to be compiled into the public image.
+    return NextResponse.json({
+      deviceId,
+      mac,
+      secret,
+      cameraKey: process.env.CAMERA_API_KEY || '',
+    });
   } catch (err) {
     if (err instanceof HttpError) {
       return NextResponse.json({ error: err.message }, { status: err.status });

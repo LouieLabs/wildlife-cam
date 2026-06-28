@@ -27,7 +27,9 @@
 // database only accepts status writes that carry the matching secret.
 #define DEVICE_SECRET  "ABC-123-4567"
 
-// --- Shared (same for every camera) ----------------------------------------
-// Camera key for photo uploads + command poll -- must match CAMERA_API_KEY in
-// web/.env.local (and the deployed backend). This stays compiled in.
+// --- Camera key (dev fallback only) -----------------------------------------
+// Shared key for photo uploads + command poll. It is now PROVISIONED into NVS by
+// the dashboard's "Set up a camera" tool, so the distributable/public firmware
+// image is built with this BLANK (no secrets in the public binary). Set it here
+// only for a bench board you compile + flash yourself.
 #define CAMERA_API_KEY "change-me-to-match-web-env-local"
