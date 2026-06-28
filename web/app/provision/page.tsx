@@ -29,6 +29,29 @@ export default function ProvisionPage() {
   const wantWifi = mode === 'wifi' || mode === 'both';
   const wantHalow = mode === 'halow' || mode === 'both';
 
+  // --- field rules (shown under each box; block submit) ----------------------
+  const ssidOk = (s: string) => s.length >= 1 && s.length <= 32;          // WPA SSID
+  const wpaOk = (s: string) => s.length >= 8 && s.length <= 63;           // WPA2 passphrase
+  const halowPskOk = (s: string) => wpaOk(s) || /^[0-9a-fA-F]{64}$/.test(s); // or 64-hex key
+  const idOk = /^[a-z0-9_-]{3,40}$/.test(deviceId.toLowerCase().trim());
+
+  const idErr = deviceId.length > 0 && !idOk ? 'Use 3–40 of: a–z, 0–9, _ or -' : '';
+  const wifiSsidErr = wifiSsid.length > 0 && !ssidOk(wifiSsid) ? 'Too long (max 32 characters)' : '';
+  const wifiPassErr = wifiPass.length > 0 && !wpaOk(wifiPass) ? 'Must be 8–63 characters' : '';
+  const halowSsidErr = halowSsid.length > 0 && !ssidOk(halowSsid) ? 'Too long (max 32 characters)' : '';
+  const halowPskErr = halowPsk.length > 0 && !halowPskOk(halowPsk) ? 'Use 8–63 characters, or a 64-char hex key' : '';
+
+  const canSubmit = !busy && idOk
+    && (!wantWifi || (ssidOk(wifiSsid) && wpaOk(wifiPass)))
+    && (!wantHalow || (ssidOk(halowSsid) && halowPskOk(halowPsk)));
+
+  // Requirement in gray; turns red with the error message when input is invalid.
+  const hint = (req: string, err: string) => (
+    <small style={{ display: 'block', marginTop: -8, marginBottom: 12, color: err ? '#c0392b' : '#888' }}>
+      {err || req}
+    </small>
+  );
+
   async function authedFetch(url: string, init: RequestInit = {}) {
     const token = await user!.getIdToken();
     return fetch(url, {
@@ -44,9 +67,11 @@ export default function ProvisionPage() {
     let port: any = null;
     try {
       const id = deviceId.toLowerCase().trim();
-      if (!/^[a-z0-9_-]{3,40}$/.test(id)) throw new Error('Device ID must be 3–40 chars: a–z, 0–9, _ or -');
-      if (wantWifi && !wifiSsid) throw new Error('Enter the 2.4 GHz network name');
-      if (wantHalow && !halowSsid) throw new Error('Enter the HaLow network name');
+      if (!idOk) throw new Error('Camera name must be 3–40 chars: a–z, 0–9, _ or -');
+      if (wantWifi && !ssidOk(wifiSsid)) throw new Error('2.4 GHz network name must be 1–32 characters');
+      if (wantWifi && !wpaOk(wifiPass)) throw new Error('2.4 GHz password must be 8–63 characters');
+      if (wantHalow && !ssidOk(halowSsid)) throw new Error('HaLow network name must be 1–32 characters');
+      if (wantHalow && !halowPskOk(halowPsk)) throw new Error('HaLow password must be 8–63 characters or a 64-char hex key');
 
       const serial = (navigator as any).serial;
       if (!serial) throw new Error('Web Serial not available — use Chrome or Edge on desktop.');
@@ -186,6 +211,7 @@ export default function ProvisionPage() {
 
       <label>Camera name (device ID)</label>
       <input style={field} value={deviceId} onChange={(e) => setDeviceId(e.target.value)} placeholder="pond_cam_02" />
+      {hint('3–40 characters: a–z, 0–9, _ or -', idErr)}
 
       <label>Which radio(s)?</label>
       <select style={field} value={mode} onChange={(e) => setMode(e.target.value as Mode)}>
@@ -198,28 +224,32 @@ export default function ProvisionPage() {
         <>
           <label>HaLow network name</label>
           <input style={field} value={halowSsid} onChange={(e) => setHalowSsid(e.target.value)} placeholder="critterwatch-halow" />
+          {hint('1–32 characters', halowSsidErr)}
           <label>HaLow password (PSK)</label>
           <input style={field} value={halowPsk} onChange={(e) => setHalowPsk(e.target.value)} />
+          {hint('8–63 characters, or a 64-character hex key', halowPskErr)}
         </>
       )}
       {wantWifi && (
         <>
           <label>2.4 GHz network name</label>
           <input style={field} value={wifiSsid} onChange={(e) => setWifiSsid(e.target.value)} />
+          {hint('1–32 characters', wifiSsidErr)}
           <label>2.4 GHz password</label>
           <input style={field} value={wifiPass} onChange={(e) => setWifiPass(e.target.value)} />
+          {hint('8–63 characters (WPA2)', wifiPassErr)}
         </>
       )}
 
-      <button onClick={provision} disabled={busy} style={{ padding: '10px 16px', fontWeight: 600 }}>
+      <button onClick={provision} disabled={!canSubmit} style={{ padding: '10px 16px', fontWeight: 600 }}>
         {busy ? 'Provisioning…' : 'Provision camera'}
       </button>
 
       {result && (
         <div style={{ marginTop: 16, padding: 12, background: '#eef9ee', border: '1px solid #bcdcbc', borderRadius: 8 }}>
           <b>✓ {result.deviceId} is set up.</b>
-          <div style={{ fontSize: 13, marginTop: 6 }}>MAC <code>{result.mac}</code> · secret <code>{result.secret}</code></div>
-          <div style={{ fontSize: 12, color: '#555' }}>Label the board with its name so you know which camera it is.</div>
+          <div style={{ marginTop: 6 }}>Label the board with {result.deviceId} so you know which camera it is.</div>
+          <div style={{ fontSize: 13, marginTop: 6, color: '#555' }}>MAC <code>{result.mac}</code> · secret <code>{result.secret}</code></div>
         </div>
       )}
 
