@@ -47,5 +47,9 @@
 // 2.4 GHz Wi-Fi hotspot + camera website, and stays awake. No key -> FIELD MODE
 // (the normal low-power deep-sleep behavior). Timer wakes skip the listen.
 #define DEV_MODE_LISTEN_MS   10000
+// Cold-boot window (ms) to listen for serial provisioning commands (the
+// dashboard's "Set up a camera" tool, or the Serial Monitor) before the
+// dev-mode prompt. Kept short -- the browser tool sends a command immediately.
+#define PROV_LISTEN_MS       4000
 // Dev hotspot password (WPA2 needs >= 8 chars). SSID is "wildcam-<DEVICE_ID>".
 #define DEV_AP_PASSWORD      "wildcam1234"

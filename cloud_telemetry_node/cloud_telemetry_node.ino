@@ -27,6 +27,7 @@
 #include "user_button.h"
 #include "dev_mode.h"
 #include "device_config.h"
+#include "provisioning.h"
 
 // Survives deep sleep (kept in RTC memory) so we can count wake-ups in the log.
 RTC_DATA_ATTR uint32_t bootCount = 0;
@@ -154,6 +155,14 @@ void setup() {
   loadDeviceConfig();
   Serial.printf("[config] device_id = %s (%s)\n", g_cfg.deviceId.c_str(),
                 g_cfg.provisioned ? "provisioned" : "NOT provisioned");
+
+  // Cold boot only: offer serial provisioning (the dashboard's "Set up a camera"
+  // tool, or the Serial Monitor) so a blank board can get its Wi-Fi + identity
+  // written to NVS. On a successful SAVE we reboot so the new config takes effect.
+  if (coldBoot && provisioningListen(PROV_LISTEN_MS)) {
+    Serial.println("[prov] saved -> rebooting to apply");
+    ESP.restart();
+  }
 
   // 0) On a cold boot only, offer DEV MODE. A developer (computer on the USB
   //    serial) presses a key -> Wi-Fi hotspot + website, stay awake. Otherwise
