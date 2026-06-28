@@ -1,3 +1,12 @@
+> ⚠️ **SUPERSEDED — DO NOT SHIP THE RULES BELOW.**
+> The `".read": true` rule in this document makes the *entire* database — including
+> the `pre_shared_keys` secrets — readable by anyone on the internet, which
+> defeats the write protection. The MAC-derived `louie_labs_7x29_[MAC]` "secret"
+> is also guessable. **The live, locked-down rules are in
+> [`web/firebase-rules.json`](web/firebase-rules.json)**, and the secure design is
+> documented in [`web/README.md`](web/README.md). This file is kept only as a
+> record of what we moved away from and why.
+
 # 📑 Security Spec: Firebase Realtime Database Rule Architecture
 **Project:** Louie Labs Backyard Wildlife Monitor  
 **Objective:** Secure the database from broad public write access while keeping the field firmware on the Heltec MCU lightweight and keyless.

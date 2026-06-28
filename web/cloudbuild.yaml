@@ -1,0 +1,48 @@
+# Auto-deploy the Next.js dashboard to Cloud Run.
+#
+# Wired to a Cloud Build trigger: on push to `main` (filtered to web/**), this
+# builds web/Dockerfile and deploys the `wildlife-dashboard` service. It mirrors
+# web/deploy.sh exactly -- same service, region, service account, env vars, and
+# the camera-api-key secret -- so manual and automated deploys behave identically.
+# deploy.sh stays as a manual fallback. See docs/PLAN-cloud-onboarding.md (Phase 1).
+
+steps:
+  # 1) Build the image from the committed Dockerfile (context = web/).
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/wildlife-dashboard:$SHORT_SHA'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/wildlife-dashboard:latest'
+      - '-f'
+      - 'web/Dockerfile'
+      - 'web'
+
+  # 2) Push both tags.
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '--all-tags', 'gcr.io/$PROJECT_ID/wildlife-dashboard']
+
+  # 3) Deploy to Cloud Run as the keyless cloud-backend service account.
+  #    Server secrets come from Secret Manager; NEXT_PUBLIC_* are baked in at
+  #    build time from web/.env.production (public by design).
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'wildlife-dashboard'
+      - '--image=gcr.io/$PROJECT_ID/wildlife-dashboard:$SHORT_SHA'
+      - '--region=us-west1'
+      - '--service-account=cloud-backend@$PROJECT_ID.iam.gserviceaccount.com'
+      - '--allow-unauthenticated'
+      - '--quiet'
+      - '--set-env-vars=GCP_PROJECT_ID=$PROJECT_ID,GCLOUD_STORAGE_BUCKET=wildlife-camera-telemetry,FIREBASE_DATABASE_URL=https://louielabs-animal-cams-default-rtdb.firebaseio.com,FIRESTORE_DATABASE_ID=wildlife-camera-telemetry-db,APP_ENV=prod'
+      - '--set-secrets=CAMERA_API_KEY=camera-api-key:latest'
+
+images:
+  - 'gcr.io/$PROJECT_ID/wildlife-dashboard:$SHORT_SHA'
+  - 'gcr.io/$PROJECT_ID/wildlife-dashboard:latest'
+
+options:
+  logging: CLOUD_LOGGING_ONLY

@@ -98,6 +98,33 @@ The right tool for camera-trap wildlife is **MegaDetector** (detects animal /
 person / vehicle on essentially any species). No detector is 100% accurate —
 treat low-confidence boxes with suspicion.
 
+---
+
+## Cloud dashboard (optional) — `web/` + `cloud_telemetry_node/`
+
+> **In plain words:** a web control panel for a *fleet* of cameras. It shows
+> which cameras are online and their battery, lets you press **Take picture**,
+> and lists the photos with the animals the AI found. Cameras nap to save
+> battery and check in every ~30 seconds.
+
+This is a **separate system** from the live-stream above — a low-power camera
+deep-sleeps, so it can't also serve the always-on video stream. Pick one mode
+per board.
+
+- **`web/`** — the Next.js dashboard + cloud APIs. Sign in with a **@louielabs.com**
+  Google account. Uploads photos to Google Cloud Storage with short-lived signed
+  links, stores live device state in Firebase Realtime Database and photo/AI
+  records in Firestore. All keyless (no JSON key files). Setup + security details:
+  [`web/README.md`](web/README.md).
+- **`cloud_telemetry_node/`** — the low-power Heltec **HT-HC33** firmware that
+  reports status, listens for a `take_picture` command, and uploads photos.
+  Setup + flashing: [`cloud_telemetry_node/README.md`](cloud_telemetry_node/README.md).
+
+Run the dashboard locally with `npm run dev` in `web/` (→ `http://localhost:3000`).
+
+> ⚠️ When flashing the telemetry node, use **Upload Speed 460800** (921600 can
+> corrupt the upload) and make sure nothing else is holding the serial port.
+
 ## Files
 
 | Path | What |
@@ -108,6 +135,8 @@ treat low-confidence boxes with suspicion.
 | `record.py` | Desktop recorder → MP4 with overlay |
 | `detect.py` | Animal/human detection + bounding boxes on photos/videos |
 | `requirements.txt` | Python deps for `detect.py` |
+| `web/` | Cloud dashboard (Next.js) + keyless cloud APIs — see `web/README.md` |
+| `cloud_telemetry_node/` | Low-power HT-HC33 firmware that reports to the dashboard |
 
 ---
 
