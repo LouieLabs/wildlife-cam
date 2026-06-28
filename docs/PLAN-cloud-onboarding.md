@@ -87,24 +87,61 @@ MAC ↔ device_id ↔ secret.
    `device_meta.mac`.
 4. **Note:** Web Serial works on desktop Chrome/Edge only — document it.
 
-## Phase 4 — OTA field upgrades (#3)  ·  *later*
-**Goal:** push new firmware without USB; per-device NVS config survives.
-1. Firmware OTA client (HTTP-pull): on wake, check a version endpoint; if newer,
-   download from GCS + apply, keep NVS config.
-2. Server: firmware version manifest + hosting (reuse Phase 3's GCS bucket).
-3. **Dual app partitions (ota_0/ota_1)** + rollback-on-failed-boot — the biggest
-   partition change; plan with the Phase 2 audit.
+## Phase 4 — OTA field upgrades  ·  *next*
+**Goal:** update firmware over Wi-Fi, triggered by a **dashboard command** (NOT a
+cold-boot auto-check); per-device NVS config survives.
+1. **Trigger via the existing command system:** add `update` to `/api/command`'s
+   allowed actions + a dashboard button; firmware runs OTA when it polls `update`.
+2. **OTA client:** compile-time `FW_VERSION`; on the `update` command, fetch a
+   version file and **only update if the server version is newer** (prevents a
+   re-update loop, since the device can't clear its own command). Download the
+   **app-only** binary, apply via ESP32 `Update`/`esp_https_ota` into the inactive
+   slot, reboot, mark valid, **roll back** on bad boot. Gate on battery.
+3. **Clear the command:** add `/api/update-complete` (camera-key auth, like
+   `capture-complete`) that resets the command to `idle` after a successful update.
+4. **Hosting/build:** publish the app `.bin` + a `version.json` under
+   `web/public/firmware/` (secret-free, already served); extend
+   `scripts/build-firmware-image.sh` to emit the OTA app bin + bump version. OTA
+   flashes ONLY the app image, not the bootloader/partitions.
+- ✅ **Already in place:** dual OTA partitions (ota_0/ota_1) + otadata in the
+  HT-HC33 variant `partitions.csv`; NVS config survives OTA.
+- 💡 **Forward-looking:** consider storing a **desired firmware version** per
+  device (declarative) instead of a one-shot `update` command — idempotent, and it
+  makes Phase 5 (fleet/scheduled updates) trivial.
+
+## Phase 5 — Fleet commands & scheduling  ·  *later*
+**Goal:** dashboard actions across MANY cameras, optionally deferred — e.g.
+"update all cameras tomorrow at midnight." Built as a server layer ABOVE the
+per-device command system; **no firmware changes** — cameras stay dumb pull-clients
+and can't tell a human apart from a scheduler.
+1. **Jobs store** (Firestore): `{ action, target: all|group|[ids], runAt, status,
+   createdBy }`.
+2. **Scheduler:** GCP **Cloud Scheduler** (cron) → authed Cloud Run route
+   `/api/run-due-jobs` → expands due jobs into per-device `devices/<id>/command`
+   writes (reusing Phase 4's command path) → marks the job done.
+3. **Dashboard UI:** a "schedule a fleet action" form + a job/status view.
+- **Prereq:** stable per-device commands (Phase 4) + the device registry (exists)
+  for targeting "all". Prefer Phase 4's **desired-version** model so a fleet update
+  is just "set desired version + when."
+- **Timing note:** cameras are pull-based + sleep, so a scheduled command goes
+  *active* at the set time and each camera applies it on its **next wake** (within
+  its duty cycle), not instantly.
 
 ---
 
 ## Cross-cutting
-- **Partition table** (NVS + LittleFS + future dual-OTA) — audit early; gates
-  Phases 2 & 4.
+- **Partition table** (NVS + LittleFS + dual-OTA) — ✅ done: the HT-HC33 variant
+  `partitions.csv` already has all three. (Gotcha: that variant csv overrides any
+  board-menu partition choice.)
 - **Security:** registry routes stay admin-only (`requireLouieLabsUser`); DB
   rules already locked (command path private).
 - **Student docs:** add a plain-English onboarding guide under
   `docs/for-students/`.
 
 ## Recommended order
-Phase 1 → Phase 2 → Phase 3 → Phase 4. Phase 1 is small and unblocks everything;
-Phase 2 is the foundation Phases 3 & 4 both stand on.
+Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5. Phase 1 is small and unblocks
+everything; Phase 2 is the foundation Phases 3 & 4 stand on; Phase 5 layers on top
+of Phase 4's command system (server-only, no firmware changes).
+
+Status (2026-06-28): Phases 1–3 shipped to `main` and live. Phase 4 (OTA) is next;
+Phase 5 (fleet/scheduling) is later.
