@@ -6,16 +6,20 @@
 // "Set up a camera" page (Web Serial) drives this after flashing; you can also
 // do it by hand from the Arduino Serial Monitor (newline-terminated lines):
 //
-//   MAC?                 -> node replies:  MAC <aa:bb:cc:dd:ee:ff>
-//   SET ssid <value>     -> stash Wi-Fi name      (reply: OK ssid)
-//   SET pass <value>     -> stash Wi-Fi password  (reply: OK pass)
-//   SET id <value>       -> stash device id       (reply: OK id)
-//   SET secret <value>   -> stash device secret   (reply: OK secret)
-//   SAVE                 -> write stashed values to NVS (reply: SAVED) and stop
-//   EXIT                 -> leave provisioning and continue normal boot
+//   MAC?                     -> node replies:  MAC <aa:bb:cc:dd:ee:ff>
+//   SET halow_ssid <value>   -> HaLow network name      (reply: OK halow_ssid)
+//   SET halow_psk  <value>   -> HaLow password (PSK)     (reply: OK halow_psk)
+//   SET wifi_ssid  <value>   -> 2.4 GHz network name     (reply: OK wifi_ssid)
+//   SET wifi_pass  <value>   -> 2.4 GHz password         (reply: OK wifi_pass)
+//   SET mode <halow|wifi|both>-> which radio(s) to use   (reply: OK mode)
+//   SET id     <value>       -> device id                (reply: OK id)
+//   SET secret <value>       -> device secret            (reply: OK secret)
+//   SAVE                     -> write stashed values to NVS (reply: SAVED), stop
+//   EXIT                     -> leave provisioning, continue normal boot
 //
-// "value" is everything after the second space, so Wi-Fi passwords may contain
-// spaces, '=', etc. (anything but a newline).
+// HaLow and 2.4 GHz are separate networks with separate credentials; identity
+// (id + secret) is shared. "value" is everything after the second space, so
+// passwords may contain spaces, '=', etc. (anything but a newline).
 //
 // Listen up to detectMs for the FIRST command. If one arrives, stay in the
 // provisioning loop (resetting an idle timeout) until SAVE/EXIT. Returns true if

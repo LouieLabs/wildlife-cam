@@ -153,8 +153,8 @@ void setup() {
   // the compiled-in dev values (secrets.h / node_config.h) when NVS is empty, so
   // bench boards keep working. One firmware image -> many cameras.
   loadDeviceConfig();
-  Serial.printf("[config] device_id = %s (%s)\n", g_cfg.deviceId.c_str(),
-                g_cfg.provisioned ? "provisioned" : "NOT provisioned");
+  Serial.printf("[config] device_id = %s | mode = %s (%s)\n", g_cfg.deviceId.c_str(),
+                g_cfg.netMode.c_str(), g_cfg.provisioned ? "provisioned" : "NOT provisioned");
 
   // Cold boot only: offer serial provisioning (the dashboard's "Set up a camera"
   // tool, or the Serial Monitor) so a blank board can get its Wi-Fi + identity

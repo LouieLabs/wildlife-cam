@@ -42,13 +42,13 @@ bool provisioningListen(uint32_t detectMs) {
   String line = readSerialLine(detectMs);
   if (line.length() == 0) return false;
 
-  String ssid, pass, id, secret;   // stashed until SAVE
+  DeviceConfig in;   // stashed fields, written to NVS on SAVE
   while (true) {
     if (line.length()) {
       if (line == "MAC?") {
         Serial.printf("MAC %s\n", macString().c_str());
       } else if (line == "SAVE") {
-        bool ok = saveDeviceConfig(ssid, pass, id, secret);
+        bool ok = saveDeviceConfig(in);
         Serial.println(ok ? "SAVED" : "ERR save");
         return ok;
       } else if (line == "EXIT") {
@@ -60,11 +60,14 @@ bool provisioningListen(uint32_t detectMs) {
         int k1 = line.indexOf(' ', k0);
         String key = (k1 < 0) ? line.substring(k0) : line.substring(k0, k1);
         String val = (k1 < 0) ? ""                 : line.substring(k1 + 1);
-        if      (key == "ssid")   { ssid = val;   Serial.println("OK ssid"); }
-        else if (key == "pass")   { pass = val;   Serial.println("OK pass"); }
-        else if (key == "id")     { id = val;     Serial.println("OK id"); }
-        else if (key == "secret") { secret = val; Serial.println("OK secret"); }
-        else                      { Serial.println("ERR key"); }
+        if      (key == "halow_ssid") { in.halowSsid = val;    Serial.println("OK halow_ssid"); }
+        else if (key == "halow_psk")  { in.halowPsk = val;     Serial.println("OK halow_psk"); }
+        else if (key == "wifi_ssid")  { in.wifiSsid = val;     Serial.println("OK wifi_ssid"); }
+        else if (key == "wifi_pass")  { in.wifiPass = val;     Serial.println("OK wifi_pass"); }
+        else if (key == "mode")       { in.netMode = val;      Serial.println("OK mode"); }
+        else if (key == "id")         { in.deviceId = val;     Serial.println("OK id"); }
+        else if (key == "secret")     { in.deviceSecret = val; Serial.println("OK secret"); }
+        else                          { Serial.println("ERR key"); }
       } else {
         Serial.println("ERR cmd");
       }
