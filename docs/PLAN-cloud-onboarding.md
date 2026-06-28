@@ -127,6 +127,30 @@ and can't tell a human apart from a scheduler.
   *active* at the set time and each camera applies it on its **next wake** (within
   its duty cycle), not instantly.
 
+## Smaller enhancements (backlog)
+- **Store each board's expected network name (debug aid).** At provision time, also
+  save `wifiSsid` / `halowSsid` / `net_mode` to `device_meta` (admin-only) — **never
+  the password/PSK** (SSIDs are non-secret/broadcast; passwords stay board-only over
+  serial). Show it in the dashboard next to last-seen so an admin can diagnose
+  "expects `Aloha`, hasn't checked in since 2pm → network changed/down?". Web-only,
+  no firmware — quick win.
+- **Device rename (archive, don't delete — keep history).** A name *is* the
+  `device_id` (cloud key + board NVS), so a rename updates both — USB-based (copy
+  old→new + re-provision) or **over-the-air via a `rename:<newId>` command** that has
+  the board rewrite its NVS id (reuses Phase 4's command plumbing — do with/after OTA).
+  The **MAC is the stable hardware id**; the name is just a label, so anchor history to
+  the MAC and leave a two-way paper trail:
+  - Set new auth `pre_shared_keys/<new>`; **remove old auth** `pre_shared_keys/<old>`
+    (board no longer logs in as the old name).
+  - **Keep** `device_meta/<old>`, tombstoned: `{status:"renamed", renamedTo:<new>,
+    renamedAt}`; set `device_meta/<new> = {mac, …, previousId:<old>}`.
+  - **Keep** old `devices/<old>` telemetry + GCS photos + Firestore detections as
+    history (do NOT delete).
+  - Admin UI: active device shows "formerly `<old>`"; archived shows "renamed → `<new>`
+    on <date>" in an Archived section. Group history by MAC (optionally a
+    `board_history/<mac>` index) so HW debugging follows the physical board.
+  - Guard edge cases: board offline, re-rename loops, name reuse.
+
 ---
 
 ## Cross-cutting
