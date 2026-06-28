@@ -2,6 +2,7 @@
 #include "node_config.h"
 #include "secrets.h"
 #include "device_config.h"
+#include "ota_update.h"
 
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
@@ -100,11 +101,22 @@ bool reportStatus(const char *status, int batteryPct, long long updatedAt) {
   snprintf(ts, sizeof(ts), "%lld", updatedAt);
 
   // Build the JSON body. The secret is what the database rule checks.
+  // OTA fields ride along on every status report so the dashboard can show the
+  // running version and any rollback that just happened -- no separate endpoint.
   String body = "{";
   body += "\"status\":\"" + String(status) + "\",";
   body += "\"battery\":" + String(batteryPct) + ",";
   body += "\"secret\":\"" + g_cfg.deviceSecret + "\",";
-  body += "\"updatedAt\":" + String(ts);
+  body += "\"updatedAt\":" + String(ts) + ",";
+  body += "\"firmwareVersion\":\"" + String(FW_VERSION) + "\",";
+  body += "\"otaState\":\"" + String(g_ota.stateLabel) + "\"";
+  if (g_ota.rollbackThisBoot && g_ota.rollbackFromVersion.length()) {
+    body += ",\"lastRollback\":{";
+    body += "\"fromVersion\":\"" + g_ota.rollbackFromVersion + "\",";
+    body += "\"reason\":\""      + g_ota.rollbackReason      + "\",";
+    body += "\"at\":"            + String(ts);
+    body += "}";
+  }
   body += "}";
 
   WiFiClientSecure client;
@@ -228,7 +240,7 @@ bool uploadStream(const String &signedUrl, Stream &stream, size_t len) {
   return code == 200;
 }
 
-bool captureComplete(const String &objectName) {
+bool captureComplete(const String &objectName, const String &firstBootOfVersion) {
   String url = String(BACKEND_BASE_URL) + "/api/capture-complete";
   bool secure = url.startsWith("https:");
   WiFiClient plain;
@@ -240,7 +252,11 @@ bool captureComplete(const String &objectName) {
   http.addHeader("x-camera-api-key", g_cfg.cameraKey);
 
   String body = String("{\"deviceId\":\"") + g_cfg.deviceId +
-                "\",\"objectPath\":\"" + objectName + "\"}";
+                "\",\"objectPath\":\"" + objectName + "\"";
+  if (firstBootOfVersion.length()) {
+    body += ",\"firstBootOfVersion\":\"" + firstBootOfVersion + "\"";
+  }
+  body += "}";
   int code = http.POST(body);
   http.end();
   if (code != 200) Serial.printf("[complete] capture-complete HTTP %d\n", code);

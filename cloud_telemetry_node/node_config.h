@@ -53,3 +53,24 @@
 #define PROV_LISTEN_MS       4000
 // Dev hotspot password (WPA2 needs >= 8 chars). SSID is "wildcam-<DEVICE_ID>".
 #define DEV_AP_PASSWORD      "wildcam1234"
+
+// --- Over-the-air firmware updates ------------------------------------------
+// FW_VERSION is the running firmware's version. The build script bumps it for
+// each released image; the OTA client compares it against the server's
+// ota-version.json (semver-style "MAJOR.MINOR.PATCH"). Bench/dev compiles keep
+// whatever's checked in here.
+#define FW_VERSION                "1.0.0"
+// Where on the backend to find the published OTA manifest + app image. The
+// manifest is a tiny JSON file ({"version":"1.1.0","app":"app.bin"}). The
+// device only attempts an OTA when the dashboard explicitly sets command =
+// "update" -- never on its own at boot.
+#define OTA_VERSION_PATH          "/firmware/ota-version.json"
+#define OTA_APP_PATH_DEFAULT      "/firmware/app.bin"
+// Minimum battery percentage before we will start an OTA. Updating mid-cycle
+// uses ~30-60 s of radio + a flash write; a brown-out partway through would
+// trigger the auto-rollback path. Skip cleanly when we're below this.
+#define OTA_BATTERY_MIN_PCT       40
+// After OTA, the new image must clear a "healthy milestone" within this many
+// cold-boot wakes or we manually revert to the previous slot. 3 wakes at
+// SLEEP_SECONDS = ~30-90 s of bad-image runtime before self-heal.
+#define OTA_MAX_STRIKES           3

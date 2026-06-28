@@ -28,6 +28,7 @@
 #include "dev_mode.h"
 #include "device_config.h"
 #include "provisioning.h"
+#include "ota_update.h"
 
 // Survives deep sleep (kept in RTC memory) so we can count wake-ups in the log.
 RTC_DATA_ATTR uint32_t bootCount = 0;
@@ -35,6 +36,9 @@ RTC_DATA_ATTR uint32_t bootCount = 0;
 RTC_DATA_ATTR uint32_t captureSeq = 0;
 
 static void goToDeepSleep(uint32_t seconds) {
+  // Tell the OTA strike counter "this cycle finished cleanly" -- so a crash
+  // mid-cycle is the only thing that increments the strike count next wake.
+  otaMarkCycleClean();
   Serial.printf("[sleep] deep sleep for %u s (the chip resets on wake)\n", seconds);
   Serial.flush();
 
@@ -51,6 +55,40 @@ static void goToDeepSleep(uint32_t seconds) {
   pirArmForWake();          // also wake on motion (ext0, settles the PIR first)
   buttonArmForWake();       // also wake on a USER button press (ext1)
   esp_deep_sleep_start();   // <-- never returns; board reboots into setup() on wake
+}
+
+// First-boot acceptance test for a freshly-installed OTA image. Capture a
+// photo, tag it "First image of vX.Y" so it shows in the dashboard as a badge,
+// and -- only after a confirmed upload + capture-complete -- tell the
+// bootloader the new image is good (cancels auto-rollback). On failure: do
+// nothing; the bootloader will revert to the previous image on the next wake.
+static void doFirstBootPhoto() {
+  Serial.printf("[ota] capturing 'First image of v%s'\n", FW_VERSION);
+  if (!cameraInit()) { Serial.println("[ota] camera init failed -- bootloader will roll back"); return; }
+
+  camera_fb_t *fb = cameraCapture();
+  bool uploaded = false;
+  if (fb) {
+    Serial.printf("[cam] captured %u bytes\n", (unsigned)fb->len);
+    String objectName;
+    String signedUrl = requestUploadUrl(objectName);
+    if (signedUrl.length() && uploadJpeg(signedUrl, fb->buf, fb->len)) {
+      if (captureComplete(objectName, String(FW_VERSION))) {
+        Serial.printf("[ota] first-boot photo uploaded + tagged ✓\n");
+        uploaded = true;
+      }
+    }
+    cameraReturn(fb);
+  } else {
+    Serial.println("[cam] capture failed");
+  }
+  cameraDeinit();
+
+  if (uploaded) {
+    otaMarkHealthy();   // mark_valid + clear pending + reset strikes
+  } else {
+    Serial.println("[ota] first-boot upload FAILED -- bootloader will roll back on next wake");
+  }
 }
 
 // Power up the camera, grab one JPEG, upload it via a signed link, then tell
@@ -161,10 +199,21 @@ void setup() {
   // written to NVS. On a successful SAVE we reboot so the new config takes effect.
   if (coldBoot && provisioningListen(PROV_LISTEN_MS)) {
     Serial.println("[prov] saved -> rebooting to apply");
-    Serial.flush();   // let "SAVED" + this line finish transmitting before reset
+    otaMarkCycleClean();    // intentional restart, not a crash
+    Serial.flush();         // let "SAVED" + this line finish transmitting before reset
     delay(200);
     ESP.restart();
   }
+
+  // Classify this boot from an OTA point of view: are we on a fresh new image
+  // that owes us a "First image of vX.Y" acceptance photo, did the previous
+  // attempt just roll back, or is this a normal continuation of an already-
+  // validated image? Also runs the 3-strike health check, which may manually
+  // revert + restart (never returns) if a validated image has been crashing.
+  otaBootSync(coldBoot);
+  Serial.printf("[ota] fw=v%s state=%s strikes=%u%s\n",
+                FW_VERSION, g_ota.stateLabel, (unsigned)g_ota.strikes,
+                g_ota.firstBootPending ? " (first-boot pending)" : "");
 
   // 0) On a cold boot only, offer DEV MODE. A developer (computer on the USB
   //    serial) presses a key -> Wi-Fi hotspot + website, stay awake. Otherwise
@@ -189,7 +238,8 @@ void setup() {
     goToDeepSleep(SLEEP_SECONDS);
   }
 
-  // 2) Report status to the Realtime Database.
+  // 2) Report status to the Realtime Database (now also carries firmwareVersion,
+  //    otaState, and lastRollback so the dashboard sees what's actually running).
   long epoch = getEpochSeconds();                 // 0 if NTP didn't sync in time
   // epoch ms needs 64 bits -- (long)epoch*1000 overflows 32-bit and gave a
   // garbage timestamp. Use 0 when the clock isn't real yet.
@@ -198,13 +248,27 @@ void setup() {
   bool ok = reportStatus("online", battery, updatedAt);
   Serial.printf("[report] %s  (battery %d%%)\n", ok ? "SENT ✓" : "FAILED", battery);
 
+  // 2.1) Validated image + clean status report? Reset the strike counter
+  //      (delayed-crash defense for an already-marked-valid image). A
+  //      firstBootPending image isn't validated yet -- its acceptance comes
+  //      from the labelled photo below.
+  if (!g_ota.firstBootPending && ok) otaMarkHealthy();
+
 #if DO_CAPTURE_CYCLE
-  // 2.5) Capture on MOTION (and on a cold boot, for a first test shot). On a
-  //      plain timer check-in we skip the new photo but still flush anything
-  //      left from a previous failed upload. Either way nothing is lost.
+  // 2.5) Capture on MOTION/BUTTON/COLD BOOT (cold gives us a diagnostic shot).
+  //      On a plain timer check-in we skip the new photo but still flush any
+  //      leftovers from a previous failed upload. Either way nothing is lost.
+  //      When firstBootPending is set, the labelled first-boot photo REPLACES
+  //      the normal cold-boot capture for this wake -- one shot, one upload,
+  //      one mark-valid signal.
   if (flashInit()) {
-    if (motionWake || buttonWake || coldBoot) captureSaveUpload();  // new photo + flush
-    else                                      uploadPendingPhotos();// timer: retry only
+    if (g_ota.firstBootPending) {
+      doFirstBootPhoto();                                            // OTA acceptance
+    } else if (motionWake || buttonWake || coldBoot) {
+      captureSaveUpload();                                           // new photo + flush
+    } else {
+      uploadPendingPhotos();                                         // timer: retry only
+    }
   } else {
     Serial.println("[flash] init failed -> skipping capture cycle");
   }
@@ -215,6 +279,13 @@ void setup() {
   Serial.printf("[command] pending = %s\n", cmd.c_str());
   if (cmd == "take_picture") {
     doTakePicture();
+  } else if (cmd == "update") {
+    // Try to fetch + apply a newer firmware. On success this never returns
+    // (the chip restarts into the new image). On any skip path (battery low,
+    // server isn't newer, server == lastFailed loop guard, network failure)
+    // it returns false and we sleep -- the command stays set so the admin
+    // sees it pending; the device will re-evaluate on its next wake.
+    otaTryUpdate(battery);
   }
 
   // 4) Back to sleep.

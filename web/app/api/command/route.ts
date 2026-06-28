@@ -4,12 +4,17 @@ import { requireLouieLabsUser, HttpError } from '@/lib/requireLouieLabsUser';
 
 export const runtime = 'nodejs';
 
-// Downstream commands to a camera (e.g. "take_picture"). A signed-in Louie Labs
-// user sets the command; the camera fetches it from /api/command-poll (which
-// reads the now-private command path with admin credentials) and acts on it.
-// The server (admin) is the only thing allowed to WRITE the command, so a
-// stranger cannot order a camera around.
-const ALLOWED = new Set(['take_picture', 'reboot', 'idle']);
+// Downstream commands to a camera. A signed-in Louie Labs user sets the
+// command; the camera fetches it from /api/command-poll (which reads the now-
+// private command path with admin credentials) and acts on it. The server
+// (admin) is the only thing allowed to WRITE the command, so a stranger
+// cannot order a camera around.
+//
+// 'update' tells the camera to check the published OTA manifest and, if it's
+// newer than what's running, download + boot the new image. The command stays
+// pending until the camera's first-boot acceptance photo is uploaded (which
+// calls /api/capture-complete -> clears it to idle) OR the admin clicks Idle.
+const ALLOWED = new Set(['take_picture', 'reboot', 'idle', 'update']);
 
 export async function POST(req: NextRequest) {
   try {

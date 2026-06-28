@@ -19,7 +19,9 @@ long getEpochSeconds(uint32_t timeoutMs = 8000);
 // Write this device's status to /devices/<id>/state in the Realtime Database.
 // The payload includes the device secret so the database rule accepts it.
 // updatedAt is epoch MILLISECONDS (64-bit -- it overflows a 32-bit int).
-// Returns true on HTTP 200.
+// Also writes the OTA snapshot from g_ota (firmwareVersion + otaState +
+// lastRollback) so the dashboard can show which version is running and whether
+// the most recent OTA succeeded or rolled back. Returns true on HTTP 200.
 bool reportStatus(const char *status, int batteryPct, long long updatedAt);
 
 // Ask the backend for this device's pending command (via /api/command-poll,
@@ -40,5 +42,8 @@ bool uploadJpeg(const String &signedUrl, const uint8_t *data, size_t len);
 bool uploadStream(const String &signedUrl, Stream &stream, size_t len);
 
 // Tell the backend the photo is uploaded: it clears the command and records the
-// capture. Returns true on HTTP 200.
-bool captureComplete(const String &objectName);
+// capture. When this upload is the first one after an OTA, pass the new
+// firmware version in firstBootOfVersion -- the backend stores it in the
+// detection record so the dashboard can show a "First image of vX.Y" badge.
+// Returns true on HTTP 200.
+bool captureComplete(const String &objectName, const String &firstBootOfVersion = "");

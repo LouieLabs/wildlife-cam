@@ -10,6 +10,9 @@ type Device = {
   command: string;
   mac: string | null;
   lastUpdate: number | null;
+  firmwareVersion: string | null;
+  otaState: 'running' | 'pending_verify' | 'rolled_back' | null;
+  lastRollback: { fromVersion: string | null; reason: string | null; at: number | null } | null;
 };
 
 type Detection = {
@@ -18,6 +21,7 @@ type Detection = {
   imageUrl: string | null;
   capturedAt: number;
   detections: { label?: string; confidence?: number; box?: number[] }[];
+  firstBootOfVersion?: string | null;
 };
 
 export default function DashboardPage() {
@@ -116,12 +120,32 @@ export default function DashboardPage() {
           {devices.map((d) => (
             <div key={d.deviceId} style={{ padding: 12, background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 8 }}>
               <b>{d.deviceId}</b> — {d.status === 'online' ? '🟢 online' : '⚪ ' + d.status}
+              {d.firmwareVersion && (
+                <span style={{ marginLeft: 8, fontSize: 11, padding: '2px 6px', borderRadius: 4,
+                               background: d.otaState === 'pending_verify' ? '#fef3c7'
+                                         : d.otaState === 'rolled_back'    ? '#fee2e2' : '#e2e8f0' }}>
+                  FW v{d.firmwareVersion}
+                  {d.otaState === 'pending_verify' && ' · verifying'}
+                </span>
+              )}
               <div>Battery: {d.battery ?? '—'}%</div>
               <div style={{ fontSize: 12, opacity: 0.7 }}>MAC: {d.mac ?? '—'}</div>
               <div style={{ fontSize: 12, opacity: 0.7 }}>Pending command: {d.command}</div>
-              <button onClick={() => sendCommand(d.deviceId, 'take_picture')} style={{ marginTop: 8 }}>
-                📸 Take picture
-              </button>
+              {d.otaState === 'rolled_back' && d.lastRollback && (
+                <div style={{ marginTop: 8, padding: 8, background: '#fef3c7', borderRadius: 6, fontSize: 13 }}>
+                  ⚠️ Update to <b>v{d.lastRollback.fromVersion}</b> rolled back
+                  {d.lastRollback.reason ? <> ({d.lastRollback.reason})</> : null}
+                  {d.lastRollback.at ? <> on {new Date(d.lastRollback.at).toLocaleString()}</> : null}.
+                  Publish a fixed version or click <b>Idle</b> to clear the update command.
+                </div>
+              )}
+              <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button onClick={() => sendCommand(d.deviceId, 'take_picture')}>📸 Take picture</button>
+                <button onClick={() => sendCommand(d.deviceId, 'update')}>⬆️ Update firmware</button>
+                {d.command !== 'idle' && (
+                  <button onClick={() => sendCommand(d.deviceId, 'idle')}>Idle</button>
+                )}
+              </div>
             </div>
           ))}
         </div>
@@ -138,6 +162,12 @@ export default function DashboardPage() {
               <span style={{ fontSize: 12, opacity: 0.7 }}>
                 {new Date(det.capturedAt).toLocaleString()}
               </span>
+              {det.firstBootOfVersion && (
+                <span style={{ marginLeft: 8, fontSize: 11, padding: '2px 6px', borderRadius: 4,
+                               background: '#dcfce7', color: '#166534' }}>
+                  🆕 First image of v{det.firstBootOfVersion}
+                </span>
+              )}
               <div>
                 {det.detections.length === 0
                   ? 'no animals'

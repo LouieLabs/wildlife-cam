@@ -22,6 +22,9 @@ export async function GET(req: NextRequest) {
     const list = Object.keys(devices).map((id) => {
       const node = devices[id] || {};
       const state = node.state || {};
+      // OTA fields are optional -- old firmware that hasn't been updated yet
+      // simply omits them, and we surface that as nulls/empty.
+      const lr = state.lastRollback || null;
       return {
         deviceId: id,
         status: state.status ?? 'unknown',
@@ -29,6 +32,15 @@ export async function GET(req: NextRequest) {
         lastUpdate: state.updatedAt ?? null,
         command: node.command ?? 'idle',
         mac: meta[id]?.mac ?? null,
+        firmwareVersion: state.firmwareVersion ?? null,
+        otaState: state.otaState ?? null,             // "running" | "pending_verify" | "rolled_back"
+        lastRollback: lr && typeof lr === 'object'
+          ? {
+              fromVersion: lr.fromVersion ?? null,
+              reason:      lr.reason ?? null,
+              at:          typeof lr.at === 'number' ? lr.at : null,
+            }
+          : null,
         // NOTE: state.secret is intentionally NOT included in the response.
       };
     });

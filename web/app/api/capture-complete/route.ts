@@ -32,12 +32,18 @@ export async function POST(req: NextRequest) {
     const deviceId = String(body.deviceId || '').toLowerCase().trim();
     // Accept either objectPath or objectName (what get-upload-url returns).
     const objectPath = String(body.objectPath || body.objectName || '').trim();
+    // Optional: the firmware sets this on the very first capture after an OTA
+    // update -- e.g. "1.1.0". The dashboard shows it as a badge so a human can
+    // see at a glance that v1.1.0 actually took a photo. Plain semver, validated
+    // strictly so we don't store random caller-supplied strings.
+    const firstBootRaw = String(body.firstBootOfVersion || '').trim();
+    const firstBootOfVersion = /^\d+\.\d+\.\d+$/.test(firstBootRaw) ? firstBootRaw : '';
 
     if (!/^[a-z0-9_-]{3,40}$/.test(deviceId)) {
       return NextResponse.json({ error: 'Invalid device ID' }, { status: 400 });
     }
 
-    // 1) clear the command
+    // 1) clear the command (this is also the signal that an "update" succeeded)
     await rtdbSet(`devices/${deviceId}/command`, 'idle');
 
     // 2) record the capture (analysis pending)
@@ -49,6 +55,7 @@ export async function POST(req: NextRequest) {
       detections: [], // Gemini fills this in later
       analyzed: false,
       createdAt: Date.now(),
+      ...(firstBootOfVersion ? { firstBootOfVersion } : {}),
     });
 
     return NextResponse.json({ id: ref.id, command: 'idle' });
