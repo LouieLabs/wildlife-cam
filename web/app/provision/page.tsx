@@ -25,6 +25,19 @@ export default function ProvisionPage() {
     document.body.appendChild(s);
   }, []);
 
+  // When flashing finishes, scroll the user down to Step 2 (same page).
+  useEffect(() => {
+    const el = document.querySelector('esp-web-install-button');
+    if (!el) return;
+    const onState = (e: any) => {
+      if (String(e?.detail?.state || '').toLowerCase() === 'finished') {
+        document.getElementById('step2')?.scrollIntoView({ behavior: 'smooth' });
+      }
+    };
+    el.addEventListener('state-changed', onState);
+    return () => el.removeEventListener('state-changed', onState);
+  }, []);
+
   const [deviceId, setDeviceId] = useState('');
   const [mode, setMode] = useState<Mode>('both');
   const [wifiSsid, setWifiSsid] = useState('');
@@ -84,7 +97,7 @@ export default function ProvisionPage() {
       if (wantHalow && !halowPskOk(halowPsk)) throw new Error('HaLow password must be 8–63 characters or a 64-char hex key');
 
       const serial = (navigator as any).serial;
-      if (!serial) throw new Error('Web Serial not available — use Chrome or Edge on desktop.');
+      if (!serial) throw new Error('Web Serial not available — use Chrome or Edge browsers on desktop.');
 
       append('Pick the camera’s USB serial port…');
       port = await serial.requestPort();
@@ -219,24 +232,29 @@ export default function ProvisionPage() {
     <main style={{ fontFamily: 'system-ui', maxWidth: 640, margin: '40px auto', padding: 16 }}>
       <h2>Set up a camera</h2>
       <p style={{ color: '#555' }}>
-        Plug the camera into this computer over USB. Two steps: flash the firmware
+        Plug the camera into this computer over USB. Two steps: install the firmware
         (only the first time for a board), then enter its network details. Chrome
-        or Edge on desktop only.
+        or Edge browsers on desktop only.
       </p>
 
-      <h3 style={{ marginBottom: 2 }}>Step 1 — Flash the firmware</h3>
+      <h3 style={{ marginBottom: 2 }}>Step 1 — Install the firmware</h3>
       <p style={{ color: '#555', marginTop: 0, fontSize: 14 }}>
-        New or blank board? Flash it once. Already flashed? Skip to Step 2.
+        New or blank board? Install it once. Already installed? Skip to Step 2.
       </p>
-      <EspInstall manifest="/firmware/manifest.json">
-        <button slot="activate" style={{ padding: '10px 16px', fontWeight: 600 }}>Flash firmware</button>
-        <span slot="unsupported">Your browser can’t flash — use Chrome or Edge on desktop.</span>
-        <span slot="not-allowed">Flashing needs a secure page (https or localhost).</span>
-      </EspInstall>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <EspInstall manifest="/firmware/manifest.json">
+          <button slot="activate" style={{ padding: '10px 16px', fontWeight: 600 }}>Install firmware</button>
+          <span slot="unsupported">Your browser can’t install — use Chrome or Edge browsers on desktop.</span>
+          <span slot="not-allowed">Installing needs a secure page (https or localhost).</span>
+        </EspInstall>
+        <span style={{ fontSize: 13, color: '#555' }}>
+          In the pop-up, select the line with <code>cu.usbserial</code> (or similar) in it.
+        </span>
+      </div>
 
       <hr style={{ margin: '20px 0' }} />
 
-      <h3 style={{ marginBottom: 8 }}>Step 2 — Enter the camera’s details</h3>
+      <h3 id="step2" style={{ marginBottom: 8 }}>Step 2 — Enter the camera’s network details (after successful Step 1 install)</h3>
       <label>Camera name (device ID)</label>
       <input style={field} value={deviceId} onChange={(e) => setDeviceId(e.target.value)} placeholder="pond_cam_02" />
       {hint('3–40 characters: a–z, 0–9, _ or -', idErr)}
