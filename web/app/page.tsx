@@ -9,6 +9,7 @@ export default function Home() {
       <ul style={{ lineHeight: 2 }}>
         <li><Link href="/dashboard">Live dashboard</Link></li>
         <li><Link href="/register">Register a new camera</Link></li>
+        <li><Link href="/provision">Set up a camera (USB)</Link></li>
       </ul>
       <AuthControl />
     </main>

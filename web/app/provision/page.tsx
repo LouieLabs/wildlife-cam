@@ -135,7 +135,21 @@ export default function ProvisionPage() {
       await send('SET mode ' + mode); await expect('OK', 3000);
       await send('SET id ' + id); await expect('OK', 3000);
       await send('SET secret ' + secret); await expect('OK', 3000);
-      await send('SAVE'); await expect('SAVED', 5000);
+      // SAVE triggers an immediate reboot, which can garble the "SAVED" reply.
+      // Accept a clean SAVED, or the reboot/config banner, as success; "ERR" =
+      // the camera rejected it.
+      await send('SAVE');
+      {
+        const end = Date.now() + 7000;
+        let ok = false;
+        while (Date.now() < end) {
+          const line = await readLine(Math.max(200, end - Date.now()));
+          if (line && /[\x20-\x7e]/.test(line)) append('< ' + line);
+          if (line.startsWith('SAVED') || line.includes('ESP-ROM') || line.startsWith('[config]')) { ok = true; break; }
+          if (line.startsWith('ERR')) throw new Error('Camera rejected SAVE: ' + line);
+        }
+        if (!ok) throw new Error('Timed out confirming save');
+      }
 
       append('Done ✓ — camera provisioned and rebooting.');
       setResult({ mac, deviceId: id, secret });

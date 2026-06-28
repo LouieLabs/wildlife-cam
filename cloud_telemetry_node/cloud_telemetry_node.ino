@@ -161,6 +161,8 @@ void setup() {
   // written to NVS. On a successful SAVE we reboot so the new config takes effect.
   if (coldBoot && provisioningListen(PROV_LISTEN_MS)) {
     Serial.println("[prov] saved -> rebooting to apply");
+    Serial.flush();   // let "SAVED" + this line finish transmitting before reset
+    delay(200);
     ESP.restart();
   }
 
