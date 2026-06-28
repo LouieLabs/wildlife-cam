@@ -9,6 +9,9 @@ build/
 *.elf
 *.hex
 *.map
+# ...but the dashboard's distributable firmware image (secret-free; rebuilt by
+# scripts/build-firmware-image.sh) IS served and committed.
+!web/public/firmware/*.bin
 
 # Local scratch / temp
 tmp/

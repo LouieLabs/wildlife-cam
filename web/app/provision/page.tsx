@@ -15,6 +15,16 @@ export default function ProvisionPage() {
   const [user, setUser] = useState<User | null>(null);
   useEffect(() => onAuthStateChanged(clientAuth, setUser), []);
 
+  // Load the ESP Web Tools web component (provides <esp-web-install-button>).
+  useEffect(() => {
+    if (document.getElementById('esp-web-tools')) return;
+    const s = document.createElement('script');
+    s.id = 'esp-web-tools';
+    s.type = 'module';
+    s.src = 'https://unpkg.com/esp-web-tools@10/dist/web/install-button.js';
+    document.body.appendChild(s);
+  }, []);
+
   const [deviceId, setDeviceId] = useState('');
   const [mode, setMode] = useState<Mode>('both');
   const [wifiSsid, setWifiSsid] = useState('');
@@ -147,6 +157,7 @@ export default function ProvisionPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'register-device failed');
       const secret: string = data.secret;
+      const cameraKey: string = data.cameraKey || '';
       append('Secret minted ✓');
 
       if (wantWifi) {
@@ -160,6 +171,7 @@ export default function ProvisionPage() {
       await send('SET mode ' + mode); await expect('OK', 3000);
       await send('SET id ' + id); await expect('OK', 3000);
       await send('SET secret ' + secret); await expect('OK', 3000);
+      if (cameraKey) { await send('SET camera_key ' + cameraKey); await expect('OK', 3000); }
       // SAVE triggers an immediate reboot, which can garble the "SAVED" reply.
       // Accept a clean SAVED, or the reboot/config banner, as success; "ERR" =
       // the camera rejected it.
@@ -200,15 +212,31 @@ export default function ProvisionPage() {
   }
 
   const field = { display: 'block', width: '100%', padding: 8, margin: '4px 0 12px', boxSizing: 'border-box' as const };
+  // ESP Web Tools custom element (typed as any so TSX accepts the unknown tag).
+  const EspInstall = 'esp-web-install-button' as any;
 
   return (
     <main style={{ fontFamily: 'system-ui', maxWidth: 640, margin: '40px auto', padding: 16 }}>
       <h2>Set up a camera</h2>
       <p style={{ color: '#555' }}>
-        Plug the (already-flashed) camera into this computer over USB, fill in the network details,
-        then click <b>Provision camera</b>. Chrome or Edge on desktop only.
+        Plug the camera into this computer over USB. Two steps: flash the firmware
+        (only the first time for a board), then enter its network details. Chrome
+        or Edge on desktop only.
       </p>
 
+      <h3 style={{ marginBottom: 2 }}>Step 1 — Flash the firmware</h3>
+      <p style={{ color: '#555', marginTop: 0, fontSize: 14 }}>
+        New or blank board? Flash it once. Already flashed? Skip to Step 2.
+      </p>
+      <EspInstall manifest="/firmware/manifest.json">
+        <button slot="activate" style={{ padding: '10px 16px', fontWeight: 600 }}>Flash firmware</button>
+        <span slot="unsupported">Your browser can’t flash — use Chrome or Edge on desktop.</span>
+        <span slot="not-allowed">Flashing needs a secure page (https or localhost).</span>
+      </EspInstall>
+
+      <hr style={{ margin: '20px 0' }} />
+
+      <h3 style={{ marginBottom: 8 }}>Step 2 — Enter the camera’s details</h3>
       <label>Camera name (device ID)</label>
       <input style={field} value={deviceId} onChange={(e) => setDeviceId(e.target.value)} placeholder="pond_cam_02" />
       {hint('3–40 characters: a–z, 0–9, _ or -', idErr)}

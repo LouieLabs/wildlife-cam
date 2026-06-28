@@ -29,7 +29,8 @@ struct DeviceConfig {
   String netMode;       // "halow" | "wifi" | "both"
   String deviceId;
   String deviceSecret;
-  bool   provisioned;   // identity + at least one network present
+  String cameraKey;     // shared upload/command key (was compile-time)
+  bool   provisioned;   // identity + network + camera key present
 };
 
 // Filled by loadDeviceConfig(); read by the networking code (cloud_backend.cpp).

@@ -14,6 +14,7 @@
 //   SET mode <halow|wifi|both>-> which radio(s) to use   (reply: OK mode)
 //   SET id     <value>       -> device id                (reply: OK id)
 //   SET secret <value>       -> device secret            (reply: OK secret)
+//   SET camera_key <value>   -> shared upload/command key (reply: OK camera_key)
 //   SAVE                     -> write stashed values to NVS (reply: SAVED), stop
 //   EXIT                     -> leave provisioning, continue normal boot
 //
