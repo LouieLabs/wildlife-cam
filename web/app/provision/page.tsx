@@ -248,7 +248,7 @@ export default function ProvisionPage() {
       {result && (
         <div style={{ marginTop: 16, padding: 12, background: '#eef9ee', border: '1px solid #bcdcbc', borderRadius: 8 }}>
           <b>✓ {result.deviceId} is set up.</b>
-          <div style={{ marginTop: 6 }}>Label the board with {result.deviceId} so you know which camera it is.</div>
+          <div style={{ marginTop: 6 }}>Label the board with <b>{result.deviceId}</b> so you know which camera it is.</div>
           <div style={{ fontSize: 13, marginTop: 6, color: '#555' }}>MAC <code>{result.mac}</code> · secret <code>{result.secret}</code></div>
         </div>
       )}
