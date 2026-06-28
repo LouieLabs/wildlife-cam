@@ -134,11 +134,22 @@ and can't tell a human apart from a scheduler.
   serial). Show it in the dashboard next to last-seen so an admin can diagnose
   "expects `Aloha`, hasn't checked in since 2pm → network changed/down?". Web-only,
   no firmware — quick win.
-- **Device rename.** A name *is* the `device_id` (cloud key + board NVS), so a rename
-  must update both. Either USB-based (copy cloud entry old→new + re-provision the
-  board) or **over-the-air via a `rename:<newId>` command** that has the board rewrite
-  its NVS id — the latter reuses Phase 4's command plumbing, so do it with/after OTA.
-  Guard the edge cases (board offline, when to delete the old id, re-rename loops).
+- **Device rename (archive, don't delete — keep history).** A name *is* the
+  `device_id` (cloud key + board NVS), so a rename updates both — USB-based (copy
+  old→new + re-provision) or **over-the-air via a `rename:<newId>` command** that has
+  the board rewrite its NVS id (reuses Phase 4's command plumbing — do with/after OTA).
+  The **MAC is the stable hardware id**; the name is just a label, so anchor history to
+  the MAC and leave a two-way paper trail:
+  - Set new auth `pre_shared_keys/<new>`; **remove old auth** `pre_shared_keys/<old>`
+    (board no longer logs in as the old name).
+  - **Keep** `device_meta/<old>`, tombstoned: `{status:"renamed", renamedTo:<new>,
+    renamedAt}`; set `device_meta/<new> = {mac, …, previousId:<old>}`.
+  - **Keep** old `devices/<old>` telemetry + GCS photos + Firestore detections as
+    history (do NOT delete).
+  - Admin UI: active device shows "formerly `<old>`"; archived shows "renamed → `<new>`
+    on <date>" in an Archived section. Group history by MAC (optionally a
+    `board_history/<mac>` index) so HW debugging follows the physical board.
+  - Guard edge cases: board offline, re-rename loops, name reuse.
 
 ---
 
