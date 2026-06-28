@@ -19,10 +19,16 @@ export async function GET(req: NextRequest) {
     const devices = devicesData || {};
     const meta = metaData || {};
 
-    const list = Object.keys(devices).map((id) => {
+    // Union of "anything device_meta knows about" + "anything that has ever
+    // reported telemetry" -- so a newly-renamed entry (meta but no devices
+    // node yet) AND any legacy device with telemetry but no meta both show up.
+    const allIds = new Set<string>([...Object.keys(meta), ...Object.keys(devices)]);
+
+    const list = Array.from(allIds).map((id) => {
       const node = devices[id] || {};
       const state = node.state || {};
       const m = meta[id] || {};
+      const isTombstone = m.status === 'renamed';
       return {
         deviceId: id,
         status: state.status ?? 'unknown',
@@ -35,6 +41,13 @@ export async function GET(req: NextRequest) {
         wifiSsid:  typeof m.wifiSsid  === 'string' ? m.wifiSsid  : null,
         halowSsid: typeof m.halowSsid === 'string' ? m.halowSsid : null,
         netMode:   typeof m.netMode   === 'string' ? m.netMode   : null,
+        // Rename audit trail. metaStatus is 'renamed' for tombstones, null otherwise.
+        // The dashboard groups by this + checks the renamedTo entry's last
+        // check-in to decide active-pending vs fully-archived.
+        metaStatus: isTombstone ? 'renamed' : null,
+        renamedTo:  typeof m.renamedTo  === 'string' ? m.renamedTo  : null,
+        renamedAt:  typeof m.renamedAt  === 'number' ? m.renamedAt  : null,
+        previousId: typeof m.previousId === 'string' ? m.previousId : null,
         // NOTE: state.secret is intentionally NOT included in the response.
       };
     });

@@ -53,6 +53,42 @@ static void goToDeepSleep(uint32_t seconds) {
   esp_deep_sleep_start();   // <-- never returns; board reboots into setup() on wake
 }
 
+// Handle "rename:<newId>" from the dashboard. The server has already done the
+// admin-side work (copied the secret to the new id, archived the old meta as
+// a tombstone). All we do here is persist the new id to NVS and restart so we
+// boot up under the new name on the next wake. From then on every call to
+// the cloud uses <newId>.
+static void doRename(const String &newId) {
+  if (newId.length() < 3 || newId.length() > 40) {
+    Serial.printf("[rename] rejected: invalid length: %s\n", newId.c_str());
+    return;
+  }
+  for (size_t i = 0; i < newId.length(); i++) {
+    char c = newId[i];
+    bool okChar = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
+                  || c == '_' || c == '-';
+    if (!okChar) {
+      Serial.printf("[rename] rejected: invalid char in id: %s\n", newId.c_str());
+      return;
+    }
+  }
+  if (newId == g_cfg.deviceId) {
+    Serial.printf("[rename] noop: already %s\n", newId.c_str());
+    return;
+  }
+  Serial.printf("[rename] %s -> %s (saving to NVS, restarting)\n",
+                g_cfg.deviceId.c_str(), newId.c_str());
+  DeviceConfig nc;
+  nc.deviceId = newId;
+  if (!saveDeviceConfig(nc)) {
+    Serial.println("[rename] NVS save FAILED -- will retry on next wake");
+    return;
+  }
+  Serial.flush();
+  delay(200);
+  ESP.restart();   // never returns
+}
+
 // Power up the camera, grab one JPEG, upload it via a signed link, then tell
 // the backend (which clears the command and records the capture).
 static void doTakePicture() {
@@ -215,6 +251,11 @@ void setup() {
   Serial.printf("[command] pending = %s\n", cmd.c_str());
   if (cmd == "take_picture") {
     doTakePicture();
+  } else if (cmd.startsWith("rename:")) {
+    // Argument form: "rename:<newDeviceId>". On success this never returns
+    // (ESP.restart() so we boot fresh under the new id). On any reject path
+    // (bad new id, NVS write failure) we fall through and try again next wake.
+    doRename(cmd.substring(7));
   }
 
   // 4) Back to sleep.

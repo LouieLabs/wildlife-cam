@@ -52,3 +52,18 @@ export async function rtdbSet(path: string, value: unknown): Promise<void> {
   });
   if (!res.ok) throw new Error(`RTDB PUT ${path} -> ${res.status}`);
 }
+
+// Atomic multi-path update. Keys are full paths from the database root (same
+// shape as Firebase SDK's update()): each key is a path like
+// "pre_shared_keys/pond_cam_01". A value of null deletes that path. Either
+// every write applies or none do -- used by the rename flow so we can't end
+// up with half the indexes pointing at the old name and half at the new.
+export async function rtdbUpdate(updates: Record<string, unknown>): Promise<void> {
+  for (const k of Object.keys(updates)) safePath(k);
+  const res = await fetch(`${RTDB}/.json`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${await bearer()}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates),
+  });
+  if (!res.ok) throw new Error(`RTDB PATCH (multi) -> ${res.status}: ${await res.text()}`);
+}
