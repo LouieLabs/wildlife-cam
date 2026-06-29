@@ -3,8 +3,10 @@
 *Keep this handy. It's everything you need to start working with the AI helper.*
 
 ## The project
-A small **outdoor wildlife camera**: it takes photos/video, saves them to a memory
-card, and can stream a live view to your phone over long-range Wi-Fi.
+A small **outdoor wildlife camera**. Two ways to run it: **stream a live view**
+to your browser (always-on, single camera), or **check in to a cloud dashboard**
+(low-power, fleet of cameras, photos saved to the board's own memory). Pick one
+per board. Start with the [for-students README](README.md) for the full picture.
 
 ## Talking to the AI helper
 - **Big or fuzzy task** → it asks you **~3 quick questions** first, so it builds the
@@ -24,11 +26,14 @@ back on. You'll still get the plain-English recap.
 
 ## Two habits that save hours
 - **Change ONE thing at a time** when something breaks, and keep notes.
-- **A "stuck" board or memory card?** Fully **unplug the USB for ~5 seconds** — a
-  reset button is *not* enough (it's like force-restarting a frozen phone).
+- **A "stuck" board?** Fully **unplug the USB for ~5 seconds** — a reset button
+  is *not* enough (it's like force-restarting a frozen phone). Works for the
+  board itself, and used to be the magic trick for stuck memory cards back when
+  we used them.
 
 ## Want to understand more?
 In the repo under **`docs/for-students/`**:
+- **README.md** — the big picture, the two modes, and the project pieces
+- **fleet-setup.md** — setting up a cloud-dashboard camera, step by step
 - **glossary.md** — every techy word in plain English
 - **sd-card-story.md** — how real debugging actually works (a true story)
-- **README.md** — the big picture and the project pieces
