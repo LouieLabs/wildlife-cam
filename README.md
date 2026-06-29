@@ -8,6 +8,19 @@ phone or computer.
 
 ## Setup
 
+> **Two modes — pick one** (a single board does one or the other, not both):
+>
+> - **A. Live-stream camera** — one board, always on, served over your local
+>   Wi-Fi to a browser. No cloud account, no dashboard. Setup below uses
+>   [`videowithinterfacesketch/`](videowithinterfacesketch/).
+> - **B. Cloud dashboard fleet** — one or more low-power boards that wake,
+>   check in, and upload photos to a web dashboard. Wi-Fi credentials are
+>   provisioned **once over USB** (no `secrets.h` editing). Jump to
+>   [Cloud dashboard](#cloud-dashboard-optional--web--cloud_telemetry_node)
+>   below and start there.
+
+The steps below set up **Mode A**.
+
 1. **WiFi credentials** live in `secrets.h` (gitignored — never committed).
    Copy the template and fill in your network:
    ```bash
