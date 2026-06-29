@@ -216,8 +216,7 @@ npm run dev
 - A preview URL per push (via Firebase Hosting preview channels)
 - A clear `src/components/` folder to build into
 
-See [`docs/wildwatch-student-guide.md`](wildwatch-student-guide.md) for the
-student-facing version.
+See the [WildWatch Student Build Guide](https://github.com/LouieLabs/wildwatch-cam-viewer/blob/main/docs/wildwatch-student-guide.md) (in the `wildwatch-cam-viewer` repo) for the student-facing version.
 
 ---
 
