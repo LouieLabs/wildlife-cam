@@ -27,3 +27,15 @@ tmp/
 # OS-specific hidden garbage files
 **/.DS_Store
 **/Thumbs.db
+
+# Firebase emulator runtime artifacts (created by `npm run test:rules`)
+**/firebase-debug.log
+**/firestore-debug.log
+**/database-debug.log
+**/firebase-debug.*.log
+**/firestore-debug.*.log
+**/database-debug.*.log
+**/.firebase/
+**/firestore_export/
+**/database_export/
+**/ui-debug.log

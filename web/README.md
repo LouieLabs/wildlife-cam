@@ -123,17 +123,39 @@ web/
 
 ## Tests
 
-Unit tests live in `web/test/` and run via Vitest. They cover the
-security-critical helpers (`requireDeviceSecret`, `rateLimit`, `clientIp`) with
-mocks — no real Firestore or RTDB needed.
+Tests live in `web/test/` and run via Vitest. There are TWO suites:
 
-```bash
-npm test            # one-off run (what CI uses)
-npx vitest          # watch mode while you iterate
-```
+1. **Fast unit + route tests** (`web/test/lib/`, `web/test/api/`). All Firebase
+   and Storage calls are mocked — no external services needed. ~half a second.
 
-Cloud Build runs `npm test` as the first step on every push to `main`; a
-failure aborts the build before any deploy happens. See `web/cloudbuild.yaml`.
+   ```bash
+   npm test            # one-off run (what CI uses for the fast suite)
+   npx vitest          # watch mode while you iterate
+   ```
+
+2. **Rules tests** (`web/test/rules/`). Boot the real Firebase emulator
+   (Firestore + Realtime DB) against the committed `firebase-rules.json` and
+   `firestore.rules`, then exercise client-side requests to verify the rules
+   accept/reject the right things. **Needs Java** (the emulator JVM).
+
+   ```bash
+   npm run test:rules   # boots emulators, runs the suite, tears them down
+   ```
+
+What's covered:
+
+- **Helpers** (`lib/requireDeviceSecret.ts`, `lib/rateLimit.ts`): auth + counter
+  math + edge cases.
+- **Routes** (every file in `app/api/*/route.ts`): missing/wrong auth → 401,
+  rate-limited → 429, bad input → 400, happy path → 200 + expected body shape.
+  Side effects to RTDB / Firestore / Storage are spied so a refactor that
+  silently breaks the firmware contract fails the build.
+- **Rules**: `/pre_shared_keys` and `/device_meta` and `/devices/{id}/command`
+  are server-only; `/devices/{id}/state` write rejects mismatching secrets and
+  accepts matching ones; ALL Firestore collections deny direct client access.
+
+Cloud Build runs both suites as step 0 on every push to `main`; a failure aborts
+the build before any deploy. See `web/cloudbuild.yaml`.
 
 ---
 
