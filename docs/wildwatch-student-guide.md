@@ -101,7 +101,7 @@ A read-only image gallery — the camera viewer section of louielabs.com. It sho
 
 - **Firebase Auth gate** — sign-in with Google is pre-wired; you receive a user object with their role claim
 - **`fetchCaptures()`** — a function you call with filter options that returns an array of CaptureCard objects (see Section 04)
-- **Mock data** — 30 sample captures with varied species, cameras, timestamps, and public/private mix so you can build without waiting for the live pipeline
+- **Mock data** — 50 sample captures with varied species, cameras, timestamps, and public/private mix so you can build without waiting for the live pipeline
 - **Firebase Hosting deploy** — you submit your component files; the admin handles deployment
 
 ---
@@ -129,7 +129,7 @@ You should see a local preview at **http://localhost:5173** with placeholder car
 |---|---|
 | `src/components/` | **Your work lives here** — gallery, card, filters, lightbox |
 | `src/api/fetchCaptures.js` | Pre-built — do not edit. Call this to get images |
-| `src/api/mockData.js` | Pre-built — 30 sample captures for local development |
+| `src/api/mockData.js` | Pre-built — 50 sample captures for local development |
 | `src/auth/` | Pre-built — do not edit. Handles sign-in and role checks |
 | `src/App.jsx` | Entry point — import your components here |
 | `tailwind.config.js` | Tailwind setup — you can add custom colors here |
@@ -211,23 +211,18 @@ You'll use two AI tools. **Google Stitch** designs what the gallery looks like. 
 
 **What it does:** Claude takes the Stitch HTML/Tailwind output and converts it into real React components connected to your `fetchCaptures()` data. It also handles the bounding box overlay math, the filter logic, the lightbox, and auth-aware rendering.
 
-> **Pro tip — use a Claude Project (if you have Claude Pro).**
-> Admin created a Project on claude.ai, Wildlife Cam Viewer, and added custom instructions: *"Always React +
-> Tailwind, .jsx files, no TypeScript, match the CaptureCard shape from the
-> uploaded guide [plus more],"* and included this guide + files `src/api/mockData.js` and `src/api/fetchCaptures.js` as
-> knowledge. Every new chat inside the Project inherits the context, so you
-> don't paste the schema and the rules every time. Free Claude won't work as well as the project which has more
-> background knowledge.
+> **About the shared Project.** When you sign in with the Louie Labs account and open **Wildlife Cam Viewer** → **New chat**, you're already inside a Project that knows the stack and the data. The admin has set custom instructions (React + Tailwind, `.jsx` files, no TypeScript, match the `CaptureCard` shape, stay inside `src/components/`, and several more) and uploaded three knowledge files: this guide, `mockData.js`, and `fetchCaptures.js`. So you don't have to paste any of that yourself — each chat just needs the *new* information (your Stitch design, or the bug you're stuck on).
+>
+> **Everyone's chats are visible to everyone else.** Give yours a descriptive title ("gallery 3-col layout", not "untitled"), and don't delete failed attempts — that's how the rest of the class learns from each other.
 
 **Step by step:**
 
-1. Go to [claude.ai](https://claude.ai) or Claude Mac Desktop and select Chat->Projects->Wildlife Cam Viewer
-2. Paste the Claude prompt from Section 07
-3. After the Claude prompt, paste the Stitch HTML/Tailwind you exported
-4. Claude will output React component code — copy each file it produces
-5. Paste each file into the correct location in `src/components/`
-6. Run `npm run dev` and check the result in your browser at localhost:5173
-7. If something looks wrong or broken, paste the error message or describe the issue back to Claude **in the same conversation**
+1. Sign in to [claude.ai](https://claude.ai) (or the Claude Mac/Windows desktop app) with the Louie Labs account, then open **Projects → Wildlife Cam Viewer → New chat**.
+2. Paste the short trigger prompt from Section 07, then paste your Stitch HTML/Tailwind below it.
+3. Claude will output React component code — copy each file it produces.
+4. Paste each file into the matching path under `src/components/`.
+5. Run `npm run dev` and check the result in your browser at `localhost:5173`.
+6. If something looks wrong or breaks, describe the issue back to Claude **in the same chat** (paste any browser-console errors too) — it remembers the code it just gave you and can fix it in place.
 
 > **Which AI is best for the code step?** Use Claude, not Stitch. Stitch is design-only — it generates HTML mockups, not working React apps. Claude is specifically strong at converting designs into real component code, handling logic like bounding box scaling, and understanding exactly how `fetchCaptures()` should connect to the UI.
 
@@ -281,74 +276,30 @@ Design constraints:
 
 ## 07 — Prompt for Claude
 
-After you have Stitch's HTML/Tailwind output, start a new Claude conversation and paste this prompt first, then paste the Stitch code below it:
+Inside the **Wildlife Cam Viewer** project (Section 05), every chat already knows the stack, the rules, and the data shapes. So the per-chat prompt is short — you only bring the *new* information.
+
+In a new chat, paste this trigger prompt, then your Stitch HTML/Tailwind below it:
 
 ---
 
 ```
-I'm building a wildlife camera image gallery called WildWatch as a React +
-Tailwind CSS app. I have a design from Google Stitch (HTML + Tailwind) pasted
-below. Please convert it into working React components.
-
-Stack and constraints:
-- React with hooks (useState, useEffect)
-- Tailwind CSS for all styling (no separate CSS files)
-- No routing library needed — single page
-- No state management library — useState is fine
-- Output separate files: GalleryGrid.jsx, CaptureCard.jsx, FilterBar.jsx,
-  Lightbox.jsx
-
-The data comes from a pre-built fetchCaptures() function. Each capture is a
-CaptureCard object with this exact shape:
-
-{
-  id: string,
-  imageUrl: string,
-  timestamp: string (ISO),
-  cameraId: string,
-  species: string,
-  confidence: number (0–1),
-  temperatureF: number | null,    // °F at capture time
-  humidityPercent: number | null, // 0–100 at capture time
-  public: boolean,
-  detections: [{
-    label: string,
-    confidence: number,
-    bbox: { x, y, w, h }   // pixels at original image resolution
-  }]
-}
-
-Specific requirements:
-
-1. GalleryGrid.jsx — accepts props: captures (array), loading (boolean),
-   showBBoxes (boolean), onCardClick (function). Renders the card grid plus
-   loading skeleton and empty state.
-
-2. CaptureCard.jsx — accepts a single capture object plus showBBoxes and
-   onClick props. Use a <canvas> element overlaid on the <img> to draw
-   bounding boxes when showBBoxes is true. Scale bbox coordinates from original
-   image dimensions to display dimensions. Add a "3 hours ago" relative
-   timestamp formatter.
-
-3. FilterBar.jsx — accepts props: onFilterChange (function called with
-   {species, cameraId, after, before}), showBBoxes (boolean),
-   onToggleBBoxes (function). Renders the animal dropdown, camera dropdown,
-   date range pickers, and bounding box toggle.
-
-4. Lightbox.jsx — accepts props: capture (object or null), onClose (function).
-   Shows the full-size image with bounding box overlay when showBBoxes is true.
-   Closes on backdrop click or Escape key.
-
-5. In App.jsx — show how to wire these together: call fetchCaptures() with the
-   filter state, pass results to GalleryGrid, handle auth state to set
-   publicOnly: true for unauthenticated users.
-
-Pasted Stitch design below — match the visual style as closely as possible:
+Here's my Stitch design (HTML + Tailwind below). Convert it into the four
+React components for the WildWatch gallery, following the project rules and
+the CaptureCard shape from the uploaded guide. Match the visual style of the
+design as closely as you can.
 
 [PASTE YOUR STITCH HTML/TAILWIND HERE]
 ```
 
 ---
+
+That's all you paste. The Project's custom instructions and uploaded files (this guide, `mockData.js`, `fetchCaptures.js`) already cover which components to build, the exact data shape, the bbox scaling math, and the file-output format.
+
+### Iterating in the same chat
+
+- **Small tweaks** ("make the cards smaller", "the bbox is off by 20px on the right") — just say so in the same chat. Claude remembers the code it just wrote and can patch it in place.
+- **Visual redesigns** — go back to Stitch (Section 06), generate a new design, then start a fresh Claude chat with the new HTML.
+- **Broken code or errors** — paste the browser-console message into the same chat. Claude will trace it back to the code it produced and give you a targeted fix.
 
 ## 08 — Iteration Workflow
 
@@ -358,7 +309,7 @@ You won't get a perfect result in one pass. Here's the loop that works:
 |---|---|---|
 | 1 | Design in Stitch | Iterate the visual look with follow-up prompts until it feels right. Aim for 2–3 rounds. |
 | 2 | Export Stitch code | Click the code icon, copy all HTML + Tailwind CSS. |
-| 3 | Convert in Claude | Paste the Claude prompt + Stitch code. Get React files back. |
+| 3 | Convert in Claude | In the Wildlife Cam Viewer project, paste the §07 trigger prompt + Stitch code. Get React files back. |
 | 4 | Drop in and run | Paste each file into `src/components/`, run `npm run dev`, open localhost:5173. |
 | 5 | Fix what's broken | If there's an error, paste it back to Claude in the same conversation and ask for a fix. |
 | 6 | Visual tweaks | For look-and-feel changes, go back to Stitch. For logic/data bugs, stay in Claude. |
@@ -401,7 +352,7 @@ Before submitting a pull request, check that all of these work:
 |---|---|---|
 | Google Stitch | [stitch.withgoogle.com](https://stitch.withgoogle.com) | Visual design — layout, colors, card shape |
 | Claude | [claude.ai](https://claude.ai) | Code — React components, data wiring, bug fixes |
-| GitHub | github.com/louielabs/wildwatch-cam-viewer | Version control — commit and submit your work |
+| GitHub | github.com/LouieLabs/wildwatch-cam-viewer | Version control — commit and submit your work |
 | localhost:5173 | *(local only)* | Preview your changes as you build |
 
 ### Terminal commands
@@ -416,4 +367,4 @@ Before submitting a pull request, check that all of these work:
 
 ---
 
-> **Questions?** Paste any error messages or confusion directly into Claude — explain what you expected and what you got. If something is badly broken, ask the admin before spending a long time debugging. A 5-minute conversation saves hours.
+> **Questions?** Paste any error messages or confusion directly into Claude (in your Wildlife Cam Viewer project chat) — explain what you expected and what you got. If something is badly broken, ask the admin before spending a long time debugging. A 5-minute conversation saves hours.
