@@ -28,9 +28,8 @@ struct DeviceConfig {
   String wifiPass;
   String netMode;       // "halow" | "wifi" | "both"
   String deviceId;
-  String deviceSecret;
-  String cameraKey;     // shared upload/command key (was compile-time)
-  bool   provisioned;   // identity + network + camera key present
+  String deviceSecret;  // per-device, used both for RTDB writes AND backend HTTP auth
+  bool   provisioned;   // identity + network present
 };
 
 // Filled by loadDeviceConfig(); read by the networking code (cloud_backend.cpp).

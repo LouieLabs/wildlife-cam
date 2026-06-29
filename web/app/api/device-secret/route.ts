@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { rtdbGet } from '@/lib/rtdb';
 import { requireLouieLabsUser, HttpError } from '@/lib/requireLouieLabsUser';
+import { checkRateLimit, rateLimitHeaders } from '@/lib/rateLimit';
 
 export const runtime = 'nodejs';
 
@@ -9,7 +10,19 @@ export const runtime = 'nodejs';
 // requires a valid Louie Labs sign-in -- the public can never reach this.
 export async function GET(req: NextRequest) {
   try {
-    await requireLouieLabsUser(req);
+    const user = await requireLouieLabsUser(req);
+
+    // 30/min per signed-in user -- recovery lookup is rare; a tighter cap here
+    // protects against a stolen token being used to enumerate every device's
+    // secret quickly.
+    const rl = await checkRateLimit({
+      key: `uid:${user.uid}:device-secret`,
+      limit: 30,
+      windowMs: 60_000,
+    });
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: rateLimitHeaders(rl) });
+    }
 
     const deviceId = (new URL(req.url).searchParams.get('deviceId') || '')
       .toLowerCase()

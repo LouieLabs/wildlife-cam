@@ -4,6 +4,7 @@ import { adminFirestore } from '@/lib/firebaseAdmin';
 import { requireLouieLabsUser, HttpError } from '@/lib/requireLouieLabsUser';
 import { APP_ENV } from '@/lib/appEnv';
 import { timingSafeEqual } from 'crypto';
+import { checkRateLimit, clientIp, rateLimitHeaders } from '@/lib/rateLimit';
 
 export const runtime = 'nodejs';
 
@@ -23,7 +24,17 @@ function safeEqual(a: string, b: string): boolean {
 // URL from its objectPath -- that's what the browser can actually open.
 export async function GET(req: NextRequest) {
   try {
-    await requireLouieLabsUser(req);
+    const user = await requireLouieLabsUser(req);
+
+    // 120/min per signed-in user -- the dashboard polls this alongside /devices.
+    const rl = await checkRateLimit({
+      key: `uid:${user.uid}:detections`,
+      limit: 120,
+      windowMs: 60_000,
+    });
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: rateLimitHeaders(rl) });
+    }
 
     const snap = await adminFirestore
       .collection(COLLECTION)
@@ -63,10 +74,22 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// POST: the Gemini detection pipeline records analysis results. Protected by the
-// shared CAMERA_API_KEY so only our trusted backend can write. Body:
+// POST: the Gemini detection pipeline records analysis results. This is a
+// server-to-server hook (NOT called by boards), so it stays guarded by the
+// shared CAMERA_API_KEY env var. Body:
 //   { deviceId, objectPath, capturedAt, detections: [{label, confidence, box:[x,y,w,h]}] }
 export async function POST(req: NextRequest) {
+  // 60/min per source IP -- the Gemini pipeline will be a single backend caller,
+  // so this is mostly a bot/abuse guard on this public path.
+  const rl = await checkRateLimit({
+    key: `ip:${clientIp(req)}:detections-post`,
+    limit: 60,
+    windowMs: 60_000,
+  });
+  if (!rl.allowed) {
+    return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: rateLimitHeaders(rl) });
+  }
+
   const apiKey = req.headers.get('x-camera-api-key') || '';
   const expected = process.env.CAMERA_API_KEY || '';
   if (!expected || !safeEqual(apiKey, expected)) {

@@ -17,6 +17,14 @@
   during the first (always-wired) USB flash.
 - **Shared values stay compiled in:** `CAMERA_API_KEY` and `BACKEND_BASE_URL`
   are the same for every camera, so they remain part of the firmware image.
+  > **SUPERSEDED (2026-06-28):** `CAMERA_API_KEY` is no longer in the firmware
+  > image at all. Boards authenticate to the backend with their **own per-device
+  > secret** (the 10-char one already provisioned for RTDB writes), sent in
+  > `x-device-secret`; the server looks the expected value up by `deviceId`. A
+  > leak of one board's secret no longer compromises the fleet. The env var
+  > still exists server-side to guard `POST /api/detections` for the future
+  > Gemini server-to-server hook. `BACKEND_BASE_URL` is unaffected (still
+  > compiled in).
 - **Admin-driven registration**, keyed by the board's **factory MAC**; the
   dashboard shows MAC → device_id → secret so an admin can label each board.
 
@@ -63,6 +71,9 @@ live in NVS, read at boot.
    brick; just idle/sleep).
 2. Replace the four compile-time `#define`s with the runtime values. Keep
    `CAMERA_API_KEY` + `BACKEND_BASE_URL` compiled (shared across all boards).
+   > **SUPERSEDED (2026-06-28):** see the decision note at the top — only
+   > `BACKEND_BASE_URL` is still compiled in; `CAMERA_API_KEY` was retired from
+   > the firmware in favor of the per-device secret.
 3. Define the **provisioning write path** (sub-decision a vs b above).
 4. Keep a **dev override**: if `secrets.h` is present + a build flag is set, use
    hardcoded values (bench testing). Integrate with existing `dev_mode.cpp`.

@@ -130,8 +130,10 @@ static String jsonStringField(const String &json, const char *key);
 // ---------------------------------------------------------------------------
 // Command poll: HTTP POST /api/command-poll (authenticated via the backend)
 // The database's command path is no longer public, so we ask the web app for
-// the pending command instead of reading the database directly -- same shared
-// key the upload flow already uses.
+// the pending command instead of reading the database directly. Auth = the
+// per-device secret (NOT a fleet-wide key), sent in x-device-secret. The server
+// looks the expected value up by deviceId, so a leak of one board's secret
+// blasts only that one board.
 // ---------------------------------------------------------------------------
 String getCommand() {
   String url = String(BACKEND_BASE_URL) + "/api/command-poll";
@@ -144,7 +146,7 @@ String getCommand() {
   HTTPClient http;
   if (!http.begin(secure ? (WiFiClient &)tls : (WiFiClient &)plain, url)) return "idle";
   http.addHeader("Content-Type", "application/json");
-  http.addHeader("x-camera-api-key", g_cfg.cameraKey);
+  http.addHeader("x-device-secret", g_cfg.deviceSecret);
 
   String reqBody = String("{\"deviceId\":\"") + g_cfg.deviceId + "\"}";
   int code = http.POST(reqBody);
@@ -188,7 +190,7 @@ String requestUploadUrl(String &objectNameOut) {
   HTTPClient http;
   if (!http.begin(secure ? (WiFiClient &)tls : (WiFiClient &)plain, url)) return "";
   http.addHeader("Content-Type", "application/json");
-  http.addHeader("x-camera-api-key", g_cfg.cameraKey);
+  http.addHeader("x-device-secret", g_cfg.deviceSecret);
 
   String reqBody = String("{\"deviceId\":\"") + g_cfg.deviceId + "\"}";
   int code = http.POST(reqBody);
@@ -237,7 +239,7 @@ bool captureComplete(const String &objectName) {
   HTTPClient http;
   if (!http.begin(secure ? (WiFiClient &)tls : (WiFiClient &)plain, url)) return false;
   http.addHeader("Content-Type", "application/json");
-  http.addHeader("x-camera-api-key", g_cfg.cameraKey);
+  http.addHeader("x-device-secret", g_cfg.deviceSecret);
 
   String body = String("{\"deviceId\":\"") + g_cfg.deviceId +
                 "\",\"objectPath\":\"" + objectName + "\"}";

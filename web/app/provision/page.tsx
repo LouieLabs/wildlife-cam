@@ -170,7 +170,6 @@ export default function ProvisionPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'register-device failed');
       const secret: string = data.secret;
-      const cameraKey: string = data.cameraKey || '';
       append('Secret minted ✓');
 
       if (wantWifi) {
@@ -184,7 +183,6 @@ export default function ProvisionPage() {
       await send('SET mode ' + mode); await expect('OK', 3000);
       await send('SET id ' + id); await expect('OK', 3000);
       await send('SET secret ' + secret); await expect('OK', 3000);
-      if (cameraKey) { await send('SET camera_key ' + cameraKey); await expect('OK', 3000); }
       // SAVE triggers an immediate reboot, which can garble the "SAVED" reply.
       // Accept a clean SAVED, or the reboot/config banner, as success; "ERR" =
       // the camera rejected it.

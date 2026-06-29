@@ -2,16 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminFirestore } from '@/lib/firebaseAdmin';
 import { rtdbSet } from '@/lib/rtdb';
 import { APP_ENV } from '@/lib/appEnv';
-import { timingSafeEqual } from 'crypto';
+import { requireDeviceSecret } from '@/lib/requireDeviceSecret';
+import { HttpError } from '@/lib/requireLouieLabsUser';
+import { checkRateLimit, clientIp, rateLimitHeaders } from '@/lib/rateLimit';
 
 export const runtime = 'nodejs';
-
-function safeEqual(a: string, b: string): boolean {
-  const ab = Buffer.from(a);
-  const bb = Buffer.from(b);
-  if (ab.length !== bb.length) return false;
-  return timingSafeEqual(ab, bb);
-}
 
 // The camera calls this right after it uploads a photo. Two jobs:
 //  1) clear the device's command back to "idle" -- the device itself can't write
@@ -19,12 +14,15 @@ function safeEqual(a: string, b: string): boolean {
 //     camera re-shooting on every wake.
 //  2) record the capture in Firestore (wildlife_detections) as "not analyzed
 //     yet"; a later Gemini step fills in the bounding boxes.
-// Protected by the shared CAMERA_API_KEY.
+// Authenticated via the per-device secret in the x-device-secret header.
 export async function POST(req: NextRequest) {
-  const apiKey = req.headers.get('x-camera-api-key') || '';
-  const expected = process.env.CAMERA_API_KEY || '';
-  if (!expected || !safeEqual(apiKey, expected)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const rl = await checkRateLimit({
+    key: `ip:${clientIp(req)}:capture-complete`,
+    limit: 60,
+    windowMs: 60_000,
+  });
+  if (!rl.allowed) {
+    return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: rateLimitHeaders(rl) });
   }
 
   try {
@@ -33,9 +31,7 @@ export async function POST(req: NextRequest) {
     // Accept either objectPath or objectName (what get-upload-url returns).
     const objectPath = String(body.objectPath || body.objectName || '').trim();
 
-    if (!/^[a-z0-9_-]{3,40}$/.test(deviceId)) {
-      return NextResponse.json({ error: 'Invalid device ID' }, { status: 400 });
-    }
+    await requireDeviceSecret(req, deviceId);
 
     // 1) clear the command
     await rtdbSet(`devices/${deviceId}/command`, 'idle');
@@ -53,6 +49,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ id: ref.id, command: 'idle' });
   } catch (err) {
+    if (err instanceof HttpError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     return NextResponse.json({ error: 'Internal error' }, { status: 500 });
   }
 }

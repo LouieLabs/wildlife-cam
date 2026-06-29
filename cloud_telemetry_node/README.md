@@ -30,8 +30,10 @@ solar/USB charger can't accidentally flip a field unit into Wi-Fi mode. Battery
 ## Setup & flashing
 1. Register the device on the dashboard first → note its **device ID** and the
    **10-char secret** (`XXX-XXX-XXXX`).
-2. `cp secrets.example.h secrets.h` and fill in Wi-Fi, `DEVICE_SECRET`, and
-   `CAMERA_API_KEY` (match `web/.env.local`).
+2. `cp secrets.example.h secrets.h` and fill in Wi-Fi + `DEVICE_SECRET`
+   (the 10-char value from the dashboard). The board uses that same secret for
+   both the database status writes AND the backend HTTP calls -- no fleet-wide
+   key needed.
 3. In `node_config.h`, set `DEVICE_ID` to match, and `SLEEP_SECONDS`
    (`10` to test fast, `30` normal).
 4. Arduino IDE → Board **Heltec ESP32 HaLow → HT-HC33** → Upload. (Only you can
@@ -44,12 +46,14 @@ solar/USB charger can't accidentally flip a field unit into Wi-Fi mode. Battery
 - **Status:** HTTPS `PUT` to `…/devices/<id>/state.json` with
   `{status, battery, secret, updatedAt}`. The database rule accepts it only
   because the secret matches the registry.
-- **Command:** `POST /api/command-poll` (with the API key); the backend reads
-  the now-private command path with admin credentials and returns it.
-- **Photo (on `take_picture`):** `POST /api/get-upload-url` (with the API key) →
-  PUT the JPEG to the signed link → `POST /api/capture-complete`, which clears
-  the command and records the capture in Firestore. The dashboard then shows the
-  photo (it mints a short-lived view link, since the bucket is private).
+- **Command:** `POST /api/command-poll` (header `x-device-secret: <board's
+  secret>`); the backend reads the now-private command path with admin
+  credentials and returns it.
+- **Photo (on `take_picture`):** `POST /api/get-upload-url` (same per-device
+  secret header) → PUT the JPEG to the signed link → `POST /api/capture-complete`,
+  which clears the command and records the capture in Firestore. The dashboard
+  then shows the photo (it mints a short-lived view link, since the bucket is
+  private).
 - **Basic SD test cycle** (`DO_CAPTURE_CYCLE=1` in `node_config.h`): every wake the
   board captures a photo, **saves it to the SD card** (`/wildcam`), waits 5 s, then
   uploads that saved file from SD (stand-in for the future PIR + "wait for a lull"
