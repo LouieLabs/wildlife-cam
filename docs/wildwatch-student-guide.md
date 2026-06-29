@@ -207,13 +207,21 @@ You'll use two AI tools. **Google Stitch** designs what the gallery looks like. 
 
 ### Tool 2 — Claude (code + wiring)
 
-**[claude.ai](https://claude.ai)** · Sign in with your account · No install needed
+**[claude.ai](https://claude.ai)** · Sign in with our Louie Labs account (claude@louielabs.com) · No install needed
 
 **What it does:** Claude takes the Stitch HTML/Tailwind output and converts it into real React components connected to your `fetchCaptures()` data. It also handles the bounding box overlay math, the filter logic, the lightbox, and auth-aware rendering.
 
+> **Pro tip — use a Claude Project (if you have Claude Pro).**
+> Admin created a Project on claude.ai, Wildlife Cam Viewer, and added custom instructions: *"Always React +
+> Tailwind, .jsx files, no TypeScript, match the CaptureCard shape from the
+> uploaded guide [plus more],"* and included this guide + files `src/api/mockData.js` and `src/api/fetchCaptures.js` as
+> knowledge. Every new chat inside the Project inherits the context, so you
+> don't paste the schema and the rules every time. Free Claude won't work as well as the project which has more
+> background knowledge.
+
 **Step by step:**
 
-1. Go to [claude.ai](https://claude.ai) and start a new conversation
+1. Go to [claude.ai](https://claude.ai) or Claude Mac Desktop and select Chat->Projects->Wildlife Cam Viewer
 2. Paste the Claude prompt from Section 07
 3. After the Claude prompt, paste the Stitch HTML/Tailwind you exported
 4. Claude will output React component code — copy each file it produces
