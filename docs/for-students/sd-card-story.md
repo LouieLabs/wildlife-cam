@@ -1,5 +1,11 @@
 # The Memory-Card Mystery (a true debugging story)
 
+> **Heads-up:** the fleet camera doesn't use a memory card anymore — photos go
+> to the board's own built-in storage now (it turned out to be more reliable
+> than the SD cards we were using). So the *wiring* in this story is history.
+> Keep reading anyway: the *thinking* — guess → test one thing → read the clue
+> → repeat — is the part that matters and the part you'll use forever.
+
 This is the real story of getting the camera to save a file to its memory card.
 It *looked* like a 10-minute job. It took about 4 hours. The point of this writeup
 isn't the wiring — it's **how engineers corner a problem when something "just
