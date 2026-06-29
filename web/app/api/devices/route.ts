@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { rtdbGet } from '@/lib/rtdb';
 import { requireLouieLabsUser, HttpError } from '@/lib/requireLouieLabsUser';
+import { checkRateLimit, rateLimitHeaders } from '@/lib/rateLimit';
 
 export const runtime = 'nodejs';
 
@@ -9,7 +10,18 @@ export const runtime = 'nodejs';
 // anything to the browser. Data source: Realtime Database /devices.
 export async function GET(req: NextRequest) {
   try {
-    await requireLouieLabsUser(req);
+    const user = await requireLouieLabsUser(req);
+
+    // 120/min per signed-in user -- the dashboard polls every few seconds with
+    // a tab or two open, this gives plenty of headroom.
+    const rl = await checkRateLimit({
+      key: `uid:${user.uid}:devices`,
+      limit: 120,
+      windowMs: 60_000,
+    });
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: rateLimitHeaders(rl) });
+    }
 
     const [devicesData, metaData] = await Promise.all([
       rtdbGet<Record<string, any>>('devices'),

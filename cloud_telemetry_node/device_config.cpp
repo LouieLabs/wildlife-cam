@@ -19,7 +19,6 @@ bool loadDeviceConfig() {
   g_cfg.netMode      = p.getString("net_mode", "");
   g_cfg.deviceId     = p.getString("device_id", "");
   g_cfg.deviceSecret = p.getString("device_secret", "");
-  g_cfg.cameraKey    = p.getString("camera_key", "");
   p.end();
 
   // Dev / bench fallback: fill any blank field from the compiled-in values. A
@@ -28,7 +27,6 @@ bool loadDeviceConfig() {
   if (g_cfg.wifiPass     == "") g_cfg.wifiPass     = WIFI_PASSWORD;
   if (g_cfg.deviceId     == "") g_cfg.deviceId     = DEVICE_ID;
   if (g_cfg.deviceSecret == "") g_cfg.deviceSecret = DEVICE_SECRET;
-  if (g_cfg.cameraKey    == "") g_cfg.cameraKey    = CAMERA_API_KEY;
 #ifdef HALOW_SSID
   if (g_cfg.halowSsid    == "") g_cfg.halowSsid    = HALOW_SSID;
 #endif
@@ -44,8 +42,7 @@ bool loadDeviceConfig() {
   }
 
   bool hasNet = g_cfg.wifiSsid.length() || g_cfg.halowSsid.length();
-  g_cfg.provisioned = g_cfg.deviceId.length() && g_cfg.deviceSecret.length()
-                      && g_cfg.cameraKey.length() && hasNet;
+  g_cfg.provisioned = g_cfg.deviceId.length() && g_cfg.deviceSecret.length() && hasNet;
   return g_cfg.provisioned;
 }
 
@@ -59,7 +56,6 @@ bool saveDeviceConfig(const DeviceConfig &c) {
   if (c.netMode.length())      p.putString("net_mode", c.netMode);
   if (c.deviceId.length())     p.putString("device_id", c.deviceId);
   if (c.deviceSecret.length()) p.putString("device_secret", c.deviceSecret);
-  if (c.cameraKey.length())    p.putString("camera_key", c.cameraKey);
   p.end();
   return true;
 }

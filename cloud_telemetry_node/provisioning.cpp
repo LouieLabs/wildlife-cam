@@ -67,7 +67,6 @@ bool provisioningListen(uint32_t detectMs) {
         else if (key == "mode")       { in.netMode = val;      Serial.println("OK mode"); }
         else if (key == "id")         { in.deviceId = val;     Serial.println("OK id"); }
         else if (key == "secret")     { in.deviceSecret = val; Serial.println("OK secret"); }
-        else if (key == "camera_key") { in.cameraKey = val;    Serial.println("OK camera_key"); }
         else                          { Serial.println("ERR key"); }
       } else {
         Serial.println("ERR cmd");

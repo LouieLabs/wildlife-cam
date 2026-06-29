@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { rtdbSet } from '@/lib/rtdb';
 import { requireLouieLabsUser, HttpError } from '@/lib/requireLouieLabsUser';
+import { checkRateLimit, rateLimitHeaders } from '@/lib/rateLimit';
 
 export const runtime = 'nodejs';
 
@@ -13,7 +14,18 @@ const ALLOWED = new Set(['take_picture', 'reboot', 'idle']);
 
 export async function POST(req: NextRequest) {
   try {
-    await requireLouieLabsUser(req);
+    const user = await requireLouieLabsUser(req);
+
+    // 30/min per signed-in user -- clicking take-picture is human-paced.
+    const rl = await checkRateLimit({
+      key: `uid:${user.uid}:command`,
+      limit: 30,
+      windowMs: 60_000,
+    });
+    if (!rl.allowed) {
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: rateLimitHeaders(rl) });
+    }
+
     const body = await req.json();
 
     const deviceId = String(body.deviceId || '').toLowerCase().trim();

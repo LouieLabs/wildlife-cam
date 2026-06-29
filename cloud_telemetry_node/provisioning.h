@@ -13,8 +13,7 @@
 //   SET wifi_pass  <value>   -> 2.4 GHz password         (reply: OK wifi_pass)
 //   SET mode <halow|wifi|both>-> which radio(s) to use   (reply: OK mode)
 //   SET id     <value>       -> device id                (reply: OK id)
-//   SET secret <value>       -> device secret            (reply: OK secret)
-//   SET camera_key <value>   -> shared upload/command key (reply: OK camera_key)
+//   SET secret <value>       -> device secret (auths BOTH RTDB writes AND backend HTTP)
 //   SAVE                     -> write stashed values to NVS (reply: SAVED), stop
 //   EXIT                     -> leave provisioning, continue normal boot
 //

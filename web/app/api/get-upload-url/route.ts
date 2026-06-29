@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Storage } from '@google-cloud/storage';
-import { timingSafeEqual } from 'crypto';
 import { APP_ENV } from '@/lib/appEnv';
+import { requireDeviceSecret } from '@/lib/requireDeviceSecret';
+import { HttpError } from '@/lib/requireLouieLabsUser';
+import { checkRateLimit, clientIp, rateLimitHeaders } from '@/lib/rateLimit';
 
 // Must run on the Node.js runtime: signing needs the Google Cloud SDK + ADC.
 export const runtime = 'nodejs';
@@ -12,30 +14,35 @@ export const runtime = 'nodejs';
 const storage = new Storage({ projectId: process.env.GCP_PROJECT_ID });
 const BUCKET = process.env.GCLOUD_STORAGE_BUCKET || 'wildlife-camera-telemetry';
 
-// Compare without leaking timing info about how many characters matched.
-function safeEqual(a: string, b: string): boolean {
-  const ab = Buffer.from(a);
-  const bb = Buffer.from(b);
-  if (ab.length !== bb.length) return false;
-  return timingSafeEqual(ab, bb);
-}
-
 export async function POST(req: NextRequest) {
-  const apiKey = req.headers.get('x-camera-api-key') || '';
-  const expected = process.env.CAMERA_API_KEY || '';
-  if (!expected || !safeEqual(apiKey, expected)) {
-    return NextResponse.json({ error: 'Unauthorized camera' }, { status: 401 });
+  // Rate-limit by IP, BEFORE auth: a wrong-secret attacker would otherwise be
+  // free to spray the endpoint, and IP is the only identifier we trust pre-auth.
+  // Legit boards wake ~every 30s and make 2 calls per wake -- 60/min has ~15x
+  // headroom over normal usage.
+  const rl = await checkRateLimit({
+    key: `ip:${clientIp(req)}:get-upload-url`,
+    limit: 60,
+    windowMs: 60_000,
+  });
+  if (!rl.allowed) {
+    return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: rateLimitHeaders(rl) });
   }
 
-  // Optional deviceId in the body just shapes the object name; it is sanitized.
-  let deviceId = 'unknown';
+  let body: any = {};
   try {
-    const body = await req.json();
-    if (body && typeof body.deviceId === 'string') {
-      deviceId = body.deviceId.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40) || 'unknown';
-    }
+    body = await req.json();
   } catch {
-    // No JSON body is fine -- we fall back to the default object name.
+    // missing body falls through to the deviceId check below
+  }
+  const deviceId = String(body?.deviceId || '').toLowerCase().trim();
+
+  try {
+    await requireDeviceSecret(req, deviceId);
+  } catch (err) {
+    if (err instanceof HttpError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
+    return NextResponse.json({ error: 'Internal error' }, { status: 500 });
   }
 
   // Tag the path by environment so dev images all live under "dev/" and can be

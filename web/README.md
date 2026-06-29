@@ -75,7 +75,7 @@ web/
     register/page.tsx             authenticated "add a camera" form
     dashboard/page.tsx            live status, take-picture, detections, secret recovery
     api/
-      get-upload-url/route.ts     camera -> 5-min v4 signed PUT URL (CAMERA_API_KEY)
+      get-upload-url/route.ts     camera -> 5-min v4 signed PUT URL (x-device-secret)
       register-device/route.ts    authed: mint + store random secret (RTDB)
       devices/route.ts            authed: read live device state (RTDB)
       device-secret/route.ts      authed: recover a lost secret (RTDB)
@@ -130,10 +130,13 @@ web/
   acts, then keeps reporting status. Only the signed-in dashboard can set a
   command.
 - **Upload a photo:** `POST /api/get-upload-url` with header
-  `x-camera-api-key: <CAMERA_API_KEY>` and `{ "deviceId": "..." }`; then HTTP
-  **PUT** the JPEG to the returned URL within 5 minutes.
-- **Detections:** after a photo is uploaded and analyzed by Gemini, the backend
-  `POST /api/detections` (with `x-camera-api-key`) to record
+  `x-device-secret: <this board's secret>` and `{ "deviceId": "..." }`; the
+  server looks up the expected secret by deviceId, so each board has its own
+  credential (a leak burns one board, not the fleet). Then HTTP **PUT** the
+  JPEG to the returned URL within 5 minutes.
+- **Detections (server-to-server):** after a photo is uploaded and analyzed by
+  Gemini, the backend `POST /api/detections` (with the shared `x-camera-api-key`
+  -- this endpoint is for trusted server callers, not boards) to record
   `{ deviceId, imageUrl, capturedAt, detections:[{label,confidence,box}] }`.
 
 > Heads-up: GCS v4 signed URLs are time-limited, not literally single-use. The

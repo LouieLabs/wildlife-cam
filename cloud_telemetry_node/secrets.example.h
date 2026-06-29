@@ -23,13 +23,9 @@
 // #define HALOW_PSK   "your-64-hex-char-psk"
 
 // --- Identity --------------------------------------------------------------
-// The secret shown when you registered THIS device on the dashboard. The
-// database only accepts status writes that carry the matching secret.
+// The 10-char secret shown when you registered THIS device on the dashboard
+// (format XXX-XXX-XXXX). It authenticates the board to the cloud for BOTH the
+// status writes to Realtime Database AND the photo/command HTTP calls to the
+// web backend; the server looks up the expected value per-device, so a leak
+// only burns the one board.
 #define DEVICE_SECRET  "ABC-123-4567"
-
-// --- Camera key (dev fallback only) -----------------------------------------
-// Shared key for photo uploads + command poll. It is now PROVISIONED into NVS by
-// the dashboard's "Set up a camera" tool, so the distributable/public firmware
-// image is built with this BLANK (no secrets in the public binary). Set it here
-// only for a bench board you compile + flash yourself.
-#define CAMERA_API_KEY "change-me-to-match-web-env-local"

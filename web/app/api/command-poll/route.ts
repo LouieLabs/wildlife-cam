@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { timingSafeEqual } from 'crypto';
 import { rtdbGet } from '@/lib/rtdb';
+import { requireDeviceSecret } from '@/lib/requireDeviceSecret';
+import { HttpError } from '@/lib/requireLouieLabsUser';
+import { checkRateLimit, clientIp, rateLimitHeaders } from '@/lib/rateLimit';
 
 // Must run on the Node.js runtime: rtdbGet needs the Google Cloud SDK + ADC.
 export const runtime = 'nodejs';
@@ -8,21 +10,16 @@ export const runtime = 'nodejs';
 // The camera polls HERE for its pending command instead of reading the database
 // directly. The database's `command` path is no longer world-readable, so this
 // route (which reads it with admin credentials, bypassing the rules) is the only
-// way in. Same shared-key auth as /api/get-upload-url and /api/capture-complete.
-
-// Compare without leaking timing info about how many characters matched.
-function safeEqual(a: string, b: string): boolean {
-  const ab = Buffer.from(a);
-  const bb = Buffer.from(b);
-  if (ab.length !== bb.length) return false;
-  return timingSafeEqual(ab, bb);
-}
+// way in. Authenticated via the per-device secret in the x-device-secret header.
 
 export async function POST(req: NextRequest) {
-  const apiKey = req.headers.get('x-camera-api-key') || '';
-  const expected = process.env.CAMERA_API_KEY || '';
-  if (!expected || !safeEqual(apiKey, expected)) {
-    return NextResponse.json({ error: 'Unauthorized camera' }, { status: 401 });
+  const rl = await checkRateLimit({
+    key: `ip:${clientIp(req)}:command-poll`,
+    limit: 60,
+    windowMs: 60_000,
+  });
+  if (!rl.allowed) {
+    return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: rateLimitHeaders(rl) });
   }
 
   let deviceId = '';
@@ -30,10 +27,16 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     deviceId = String(body.deviceId || '').toLowerCase().trim();
   } catch {
-    // fall through to the validation below, which rejects an empty id
+    // fall through; requireDeviceSecret will reject the empty/invalid id
   }
-  if (!/^[a-z0-9_-]{3,40}$/.test(deviceId)) {
-    return NextResponse.json({ error: 'Invalid device ID' }, { status: 400 });
+
+  try {
+    await requireDeviceSecret(req, deviceId);
+  } catch (err) {
+    if (err instanceof HttpError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
+    return NextResponse.json({ error: 'Internal error' }, { status: 500 });
   }
 
   const command = (await rtdbGet<string>(`devices/${deviceId}/command`)) ?? 'idle';
