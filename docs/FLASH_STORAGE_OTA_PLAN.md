@@ -1,8 +1,10 @@
 # Flash Storage + OTA Plan (Heltec HT-HC33)
 
-> **Status:** ACTIVE — created 2026-06-27. Supersedes the microSD storage approach
-> (see *Decision Record* below). No code written yet; this is the agreed plan.
-> **Audience:** LouieLabs students + whoever (human or Claude) implements it next.
+> **Status (updated 2026-06-29):** Steps 1 & 2 **SHIPPED** on `main`; Step 3
+> (OTA update code) is the only piece still open. See the Decision Record
+> below for the 2026-06-29 entry. Supersedes the microSD storage approach.
+> **Audience:** LouieLabs students + whoever (human or Claude) implements
+> Step 3 next.
 
 ## In plain words
 
@@ -32,7 +34,7 @@ the OTA code last.
 
 ## The three steps (order matters)
 
-### Step 1 — 16 MB OTA-ready partition table  *(do first; foundation; no logic changes)*
+### Step 1 — 16 MB OTA-ready partition table  *(✅ SHIPPED — see [`firmware/heltec-core-overrides/`](../firmware/heltec-core-overrides/))*
 Switch the board to 16 MB and apply a layout with **two app slots** (for OTA) plus a
 large LittleFS data area:
 
@@ -47,17 +49,15 @@ coredump,  data, coredump, 0xFF0000,  0x10000     # 64 KB  crash logs
 ```
 - **Result:** ~11.5 MB usable LittleFS ≈ **~46 full-3 MP to ~287 VGA photos**, persistent.
 - **Keep the data partition labeled `spiffs`** so the default `LittleFS.begin()` finds it.
-- **Open question to resolve first:** how to apply a custom flash size + partition CSV
-  with the Heltec core. Check `<core>/.../boards.txt` for `ht-hc33.menu.FlashSize.*` /
-  `ht-hc33.menu.PartitionScheme.*`. If those menus exist, add an option and select it via
-  the FQBN. If not, use a `boards.local.txt` beside `boards.txt` overriding
-  `ht-hc33.build.flash_size=16MB`, `ht-hc33.build.partitions=<csvname>`,
-  `ht-hc33.upload.maximum_size=2097152`, and drop the CSV in the core's `tools/partitions/`.
-  (A sketch-local `partitions.csv` sets the table but **not** the flash size.)
+- **Resolved (2026-06-29):** the `boards.local.txt` + custom partition CSV
+  approach worked. Files live in [`firmware/heltec-core-overrides/`](../firmware/heltec-core-overrides/);
+  see that directory's README for install steps. Gotcha discovered along the
+  way: the **variant**'s `partitions.csv` outranks `build.partitions`, so
+  the override has to land in the right variant directory.
 - **Verify:** compile shows app `Maximum is 2097152 bytes`; at runtime
   `LittleFS.totalBytes()` ≈ 11.5 MB.
 
-### Step 2 — flash storage layer  *(after Step 1)*
+### Step 2 — flash storage layer  *(✅ SHIPPED — see [`cloud_telemetry_node/flash_store.{h,cpp}`](../cloud_telemetry_node/))*
 In `cloud_telemetry_node`, retire the SD logic in `sd_store.{h,cpp}` and add a modular
 `flash_store.{h,cpp}` (separate files, per the team rule):
 - **Flow:** capture → write `/img_<seq>.jpg` to LittleFS → upload via the existing
@@ -65,7 +65,7 @@ In `cloud_telemetry_node`, retire the SD logic in `sd_store.{h,cpp}` and add a m
 - Add `picsRemaining()` = `(LittleFS.totalBytes() - LittleFS.usedBytes()) / runningAvgJpegBytes`.
 - `#include <LittleFS.h>`, `LittleFS.begin(true)`. Wear is a non-issue at capture-and-clear volumes.
 
-### Step 3 — OTA update code  *(last; independent of the data layout)*
+### Step 3 — OTA update code  *(⏳ OPEN — last; independent of the data layout)*
 On wake, read a firmware version/URL from RTDB `/devices/<id>/state` (or a new
 `/devices/<id>/ota` field). If newer than the running version: HTTPS-download the `.bin`
 (`WiFiClientSecure` + `Update.writeStream()`) into the **inactive** app slot → verify →
@@ -90,6 +90,13 @@ rewrite history. (See the maintenance note below for why.)
   single-app max-storage (~11.5 MB vs ~14 MB LittleFS). Rationale: repartitioning later to
   add OTA would wipe field photos, so the slots must exist up front; the ~2.5 MB of storage
   given up is worth remote updatability.
+- **2026-06-29 — Steps 1 & 2 shipped on `main`.** The 16 MB OTA-ready partition
+  table landed in [`firmware/heltec-core-overrides/`](../firmware/heltec-core-overrides/)
+  (boards.local.txt + custom CSV in the variant directory); the flash storage layer
+  landed in [`cloud_telemetry_node/flash_store.{h,cpp}`](../cloud_telemetry_node/),
+  retiring the SD code path. The capture → LittleFS → upload → delete-on-success
+  flow is live in the fleet firmware. **Step 3 (OTA update code) is the only
+  remaining piece of the original plan.**
 
 ## How to keep this doc honest
 
