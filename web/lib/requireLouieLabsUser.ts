@@ -35,3 +35,24 @@ export async function requireLouieLabsUser(req: Request): Promise<LouieUser> {
 
   return { uid: decoded.uid, email };
 }
+
+// Optional-auth variant for routes that serve BOTH public visitors and
+// signed-in Louie Labs users (like /api/captures). Returns null instead of
+// throwing on the no-token / bad-token / wrong-domain cases — the caller then
+// degrades to the public view rather than returning an error.
+export async function tryLouieLabsUser(req: Request): Promise<LouieUser | null> {
+  const header = req.headers.get('authorization') || '';
+  const token = header.startsWith('Bearer ') ? header.slice(7) : '';
+  if (!token) return null;
+
+  try {
+    const decoded = await getAuth(adminApp).verifyIdToken(token);
+    const email = (decoded.email || '').toLowerCase();
+    if (!decoded.email_verified) return null;
+    if (!email.endsWith('@' + ALLOWED_DOMAIN)) return null;
+    return { uid: decoded.uid, email };
+  } catch {
+    // Malformed / expired / unverifiable token → treat as public visitor.
+    return null;
+  }
+}

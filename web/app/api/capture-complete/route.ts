@@ -37,6 +37,12 @@ export async function POST(req: NextRequest) {
     await rtdbSet(`devices/${deviceId}/command`, 'idle');
 
     // 2) record the capture (analysis pending)
+    //
+    // Fields with default values matter once /api/captures starts serving the
+    // student gallery: `public` gates the unauth view (Gemini will set true /
+    // false based on person/dog/deterrent-cam detection), and temperatureF /
+    // humidityPercent are reserved for a future per-camera weather lookup
+    // (and eventually an onboard sensor). See docs/wildwatch-student-guide.md §04.
     const ref = await adminFirestore.collection('wildlife_detections').add({
       deviceId,
       env: APP_ENV, // tag so dev records can be purged without touching prod
@@ -44,6 +50,9 @@ export async function POST(req: NextRequest) {
       capturedAt: Date.now(),
       detections: [], // Gemini fills this in later
       analyzed: false,
+      public: false,           // safer default — Gemini sets true after verifying no person/dog
+      temperatureF: null,      // city-weather lookup (planned) or onboard sensor (later) will fill these
+      humidityPercent: null,
       createdAt: Date.now(),
     });
 
