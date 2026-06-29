@@ -10,6 +10,9 @@ device control, and an AI-detection feed.
 > Cameras upload photos using short-lived "upload tickets" so they never hold any
 > cloud keys.
 
+**Deployed at:** `https://wildlife-dashboard-ee47ntxftq-uw.a.run.app`
+(provisioning page: `/provision`). Auto-deploys from `main` via Cloud Build.
+
 ---
 
 ## Hybrid database layout (by design)
