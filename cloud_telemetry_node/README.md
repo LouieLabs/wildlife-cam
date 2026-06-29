@@ -28,19 +28,48 @@ solar/USB charger can't accidentally flip a field unit into Wi-Fi mode. Battery
 % is read from the real divider (`ADC_Ctrl` on GPIO20 → `ADC_IN` on GPIO1).
 
 ## Setup & flashing
-1. Register the device on the dashboard first → note its **device ID** and the
-   **10-char secret** (`XXX-XXX-XXXX`).
-2. `cp secrets.example.h secrets.h` and fill in Wi-Fi + `DEVICE_SECRET`
-   (the 10-char value from the dashboard). The board uses that same secret for
-   both the database status writes AND the backend HTTP calls -- no fleet-wide
+
+There are **two paths to give the board its Wi-Fi + identity**. Pick one. Both
+work on the same firmware image; **NVS overrides `secrets.h`** if both are set.
+
+### Path A — Dashboard provisioning (recommended)
+The board's identity (`DEVICE_ID`, secret) and Wi-Fi credentials live in on-chip
+**NVS** (non-volatile storage). They're written *once* via the dashboard's "Set
+up a camera" page over USB Web Serial, and **survive reflashes**. Production
+firmware is built with `secrets.h` blank so it MUST be provisioned.
+
+1. Build & flash the firmware (Arduino IDE → Board **Heltec ESP32 HaLow → HT-HC33**
+   → Upload Speed **460800** → Upload). With `secrets.h` blank, the board boots
+   into a 10-second provisioning window on every cold boot.
+2. On a desktop **Chrome / Edge** (Web Serial isn't on Safari / mobile), open the
+   dashboard's `/provision` page (see [`web/README.md`](../web/README.md) for the
+   URL). Sign in with your `@louielabs.com` account.
+3. Click **Connect** → pick the board's serial port. The page resets the board,
+   reads its MAC, registers the device (mints the 10-char secret server-side),
+   then writes Wi-Fi + identity into NVS. ~30 s end-to-end.
+4. The board reboots into normal operation. Open Serial Monitor at **115200** to
+   confirm — you should see `wake #N … report SENT ✓` and the dashboard should
+   show the device 🟢 online.
+
+### Path B — `secrets.h` fallback (bench / no-network)
+For dev work without the dashboard (e.g. testing a new code path on a board you
+haven't registered yet):
+
+1. Register the device on the dashboard *or* invent a `DEVICE_ID` + secret pair
+   that matches the registry.
+2. `cp secrets.example.h secrets.h` and fill in Wi-Fi + `DEVICE_SECRET` (the
+   10-char value, format `XXX-XXX-XXXX`). The board uses that same secret for
+   both the database status writes AND the backend HTTP calls — no fleet-wide
    key needed.
 3. In `node_config.h`, set `DEVICE_ID` to match, and `SLEEP_SECONDS`
    (`10` to test fast, `30` normal).
-4. Arduino IDE → Board **Heltec ESP32 HaLow → HT-HC33** → Upload. (Only you can
-   flash; the board is on your USB port.)
-5. Open Serial Monitor at **115200**. You should see a `wake #N … report SENT ✓`
-   line, then it sleeps and repeats. Watch the dashboard — the device should show
-   🟢 online.
+4. Arduino IDE → Board **Heltec ESP32 HaLow → HT-HC33** → Upload Speed **460800**
+   → Upload.
+5. Open Serial Monitor at **115200**. Same expected output as Path A.
+
+> If a board has NVS values from a prior provisioning AND you set `secrets.h`,
+> NVS wins. To force the `secrets.h` path, clear NVS first (`nvs_flash_erase`
+> in firmware or wipe via `esptool erase_flash` and reflash).
 
 ## How it talks to the cloud
 - **Status:** HTTPS `PUT` to `…/devices/<id>/state.json` with
@@ -54,11 +83,13 @@ solar/USB charger can't accidentally flip a field unit into Wi-Fi mode. Battery
   which clears the command and records the capture in Firestore. The dashboard
   then shows the photo (it mints a short-lived view link, since the bucket is
   private).
-- **Basic SD test cycle** (`DO_CAPTURE_CYCLE=1` in `node_config.h`): every wake the
-  board captures a photo, **saves it to the SD card** (`/wildcam`), waits 5 s, then
-  uploads that saved file from SD (stand-in for the future PIR + "wait for a lull"
-  flow). The photo stays on the card so it's never lost. Set to `0` for
-  status-only.
+- **Capture cycle** (`DO_CAPTURE_CYCLE=1` in `node_config.h`): every wake the
+  board captures a photo, **saves it to internal flash** (`LittleFS`, under
+  `/wildcam/`, via [`flash_store.{h,cpp}`](flash_store.h)), waits 5 s, then
+  uploads that saved file from flash (stand-in for the future PIR + "wait for a
+  lull" flow). The photo stays on flash until the upload succeeds, so a
+  network blip doesn't lose it. Set to `0` for status-only. (microSD support
+  was retired 2026-06-27 — see [`docs/FLASH_STORAGE_OTA_PLAN.md`](../docs/FLASH_STORAGE_OTA_PLAN.md).)
 
 > Set `BACKEND_BASE_URL` in `node_config.h` to where the web app is reachable
 > from the board. While testing against `npm run dev`, that's your computer's
