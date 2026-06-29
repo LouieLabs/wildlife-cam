@@ -115,7 +115,7 @@ You'll work in a dedicated sandbox repo. You never touch auth, the database, or 
 The admin will create the repo and invite you. Once invited, open Terminal (Mac) or PowerShell (Windows) and run:
 
 ```bash
-git clone https://github.com/louielabs/wildwatch-cam-viewer
+git clone https://github.com/LouieLabs/wildwatch-cam-viewer.git
 cd wildwatch-cam-viewer
 npm install
 npm run dev
@@ -151,6 +151,8 @@ Every image the gallery displays is a **CaptureCard** object. You get an array o
 | `cameraId` | `string` | Camera identifier e.g. `"cam-north-gate"`, `"cam-driveway"` |
 | `species` | `string` | Primary animal label e.g. `"deer"`, `"raccoon"`, `"squirrel"` |
 | `confidence` | `number` | 0 to 1 — show as percentage e.g. `0.91` → `"91%"` |
+| `temperatureF` | `number` | Air temperature at capture time, in °F (integer). May be `null` if unknown |
+| `humidityPercent` | `number` | Relative humidity at capture time, 0–100 (integer). May be `null` if unknown |
 | `public` | `boolean` | `true` = visible to everyone. `false` = logged-in roles only |
 | `detections` | `array` | All detected objects in frame — see sub-fields below |
 | `detections[].label` | `string` | Object label e.g. `"deer"`, `"person"` |
@@ -161,6 +163,8 @@ Every image the gallery displays is a **CaptureCard** object. You get an array o
 | `detections[].bbox.h` | `number` | Height of bounding box in pixels |
 
 > **⚠️ Bounding box scaling:** The `bbox` coordinates are in the original image's pixel dimensions. When you display the image at a smaller size, you must scale the boxes proportionally. If the original image is 1920×1080 and you display it at 480×270 (¼ size), multiply every bbox value by 0.25. Ask Claude to generate this math for you.
+
+> **Where do `temperatureF` and `humidityPercent` come from?** For now, the values are looked up at capture time from the nearest city's current weather (using rough GPS derived from the camera's Wi-Fi, or set by the admin if Wi-Fi geo isn't usable). Once a temperature/humidity sensor is added to the camera boards, the on-board reading replaces the city lookup. The field names and units stay the same either way — the gallery doesn't need to know which source. Either field may be `null` if no reading was available.
 
 ### How to call `fetchCaptures()`
 
@@ -296,6 +300,8 @@ CaptureCard object with this exact shape:
   cameraId: string,
   species: string,
   confidence: number (0–1),
+  temperatureF: number | null,    // °F at capture time
+  humidityPercent: number | null, // 0–100 at capture time
   public: boolean,
   detections: [{
     label: string,
