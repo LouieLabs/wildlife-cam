@@ -160,7 +160,7 @@ Run the dashboard locally with `npm run dev` in `web/` (→ `http://localhost:30
   the **same network** as the camera.
 - The HaLow core lacks `tm_gmtoff`; the sketch computes the UTC offset manually.
 - **Build toolchain: Arduino IDE + Heltec "ESP32 HaLow" core** (`heltec:esp_halow`),
-  not PlatformIO. A `platformio.ini` exists but is **parked/experimental** —
-  PlatformIO has no HT-HC33 board definition and its standard arduino-esp32 core
-  lacks Heltec's HaLow stack (no Wi-Fi HaLow APIs, no `halow_SD.h`). See the
-  header comment in `platformio.ini` for the full caveats and how to revive it.
+  not PlatformIO. PlatformIO was tried and parked — see
+  [`docs/PARKED-platformio.md`](docs/PARKED-platformio.md) for why (no HT-HC33
+  board definition, standard arduino-esp32 lacks Heltec's HaLow stack) and a
+  starting config to revive from.
