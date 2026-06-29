@@ -9,6 +9,9 @@ import path from 'path';
 export default defineConfig({
   test: {
     include: ['test/**/*.test.ts'],
+    // Rules tests need the Firebase emulator (Java) running; they are scoped
+    // out here and run via `npm run test:rules` against vitest.rules.config.ts.
+    exclude: ['test/rules/**', 'node_modules/**'],
     environment: 'node',
     globals: false,   // import { describe, it, expect } explicitly — clearer
   },
