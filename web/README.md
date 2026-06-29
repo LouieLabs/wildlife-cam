@@ -121,6 +121,22 @@ web/
 
 ---
 
+## Tests
+
+Unit tests live in `web/test/` and run via Vitest. They cover the
+security-critical helpers (`requireDeviceSecret`, `rateLimit`, `clientIp`) with
+mocks — no real Firestore or RTDB needed.
+
+```bash
+npm test            # one-off run (what CI uses)
+npx vitest          # watch mode while you iterate
+```
+
+Cloud Build runs `npm test` as the first step on every push to `main`; a
+failure aborts the build before any deploy happens. See `web/cloudbuild.yaml`.
+
+---
+
 ## Camera-side data flow (firmware)
 
 - **Status (write):** node writes `devices/<id>/state` =
