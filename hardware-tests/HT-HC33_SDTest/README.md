@@ -1,5 +1,12 @@
 # HT-HC33 SD card — integration notes (handoff)
 
+> **Status (2026-06-29):** The fleet firmware ([`cloud_telemetry_node/`](../../cloud_telemetry_node/))
+> now stores photos in **internal flash (LittleFS)**, not microSD. This sketch
+> is kept for diagnosing flash hardware on a suspect board (or for projects
+> that still need removable storage), not as the default storage path. See
+> [`docs/FLASH_STORAGE_OTA_PLAN.md`](../../docs/FLASH_STORAGE_OTA_PLAN.md) for
+> the decision context.
+
 How to read/write the microSD card on the **Heltec HT-HC33** (ESP32-S3 Wi-Fi
 HaLow Camera) from Arduino, plus a drop-in "what's wrong with the card"
 diagnostic. All of this is verified working on real hardware.
