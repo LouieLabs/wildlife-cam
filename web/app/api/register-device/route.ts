@@ -26,12 +26,12 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
 
-    const deviceId = String(body.deviceId || '').toLowerCase().trim();
+    const deviceId = String(body.deviceId || '').trim();
     const mac = String(body.mac || '').toUpperCase().replace(/[^0-9A-F]/g, '');
 
-    if (!/^[a-z0-9_-]{3,40}$/.test(deviceId)) {
+    if (!/^[A-Za-z0-9_-]{3,40}$/.test(deviceId)) {
       return NextResponse.json(
-        { error: 'Device ID must be 3-40 chars: letters, numbers, _ or -' },
+        { error: 'Device ID must be 3-40 chars: letters (A-Z, a-z), numbers, _ or -' },
         { status: 400 }
       );
     }
