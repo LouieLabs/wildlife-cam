@@ -31,7 +31,9 @@ function safeEqual(a: string, b: string): boolean {
 // Validates deviceId shape too -- callers can rely on the id being well-formed
 // after this returns.
 export async function requireDeviceSecret(req: Request, deviceId: string): Promise<void> {
-  if (!/^[a-z0-9_-]{3,40}$/.test(deviceId)) {
+  // Case is preserved end-to-end (LL-cam1 stays LL-cam1) so the RTDB lookup
+  // matches the path the register route wrote to. Pattern matches register-device.
+  if (!/^[A-Za-z0-9_-]{3,40}$/.test(deviceId)) {
     throw new HttpError(400, 'Invalid device ID');
   }
   const presented = req.headers.get('x-device-secret') || '';
