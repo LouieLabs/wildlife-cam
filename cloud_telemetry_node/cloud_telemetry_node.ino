@@ -28,6 +28,7 @@
 #include "dev_mode.h"
 #include "device_config.h"
 #include "provisioning.h"
+#include "version.h"
 
 // Survives deep sleep (kept in RTC memory) so we can count wake-ups in the log.
 RTC_DATA_ATTR uint32_t bootCount = 0;
@@ -145,6 +146,7 @@ void setup() {
   const char *why = motionWake ? "MOTION wake" : buttonWake ? "BUTTON wake"
                   : timerWake  ? "timer wake"  : "cold boot";
   Serial.printf("\n=== wake #%u (wake reason: %d, %s) ===\n", bootCount, (int)cause, why);
+  Serial.printf("[fw] version %s\n", FW_VERSION_STR);
 
   pirInit();      // PIR signal pin   -> input (also needed before re-arming for sleep)
   buttonInit();   // USER button pin  -> input

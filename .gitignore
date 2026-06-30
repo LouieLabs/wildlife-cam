@@ -3,6 +3,11 @@ secrets.h
 **/secrets.h
 # (the committed template secrets.example.h is intentionally NOT ignored)
 
+# Auto-generated per build by the prebuild hook in
+# firmware/heltec-core-overrides/platform.local.txt (writes the current git
+# short SHA). cloud_telemetry_node/version.h picks it up via __has_include.
+**/build_version.h
+
 # Arduino build output
 build/
 *.bin

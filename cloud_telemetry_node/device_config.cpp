@@ -48,14 +48,43 @@ bool loadDeviceConfig() {
 
 bool saveDeviceConfig(const DeviceConfig &c) {
   Preferences p;
-  if (!p.begin(NVS_NS, /*readOnly=*/false)) return false;
-  if (c.halowSsid.length())    p.putString("halow_ssid", c.halowSsid);
-  if (c.halowPsk.length())     p.putString("halow_psk", c.halowPsk);
-  if (c.wifiSsid.length())     p.putString("wifi_ssid", c.wifiSsid);
-  if (c.wifiPass.length())     p.putString("wifi_pass", c.wifiPass);
-  if (c.netMode.length())      p.putString("net_mode", c.netMode);
-  if (c.deviceId.length())     p.putString("device_id", c.deviceId);
-  if (c.deviceSecret.length()) p.putString("device_secret", c.deviceSecret);
+  if (!p.begin(NVS_NS, /*readOnly=*/false)) {
+    Serial.println("[nvs] begin(readWrite) failed");
+    return false;
+  }
+
+  // putString() returns 0 on failure but the old code ignored that, so a full
+  // NVS partition silently swallowed writes while still reporting "SAVED" to
+  // the provisioning page. After every write, READ BACK the same key and
+  // compare to what we just wrote -- the only reliable detector for the
+  // silent-failure case. Any mismatch fails the whole save so SAVE responds
+  // ERR save instead of lying.
+  bool allOk = true;
+  auto checkPut = [&](const char *key, const String &want) {
+    if (want.length() == 0) return;          // blank == caller wants to leave key as-is
+    size_t wrote = p.putString(key, want);
+    String got = p.getString(key, "");
+    bool match = (got == want);
+    bool ok = (wrote > 0) && match;
+    Serial.printf("[nvs] %-14s %s  wrote=%u readback=%s\n", key,
+                  ok ? "OK  " : "FAIL",
+                  (unsigned)wrote,
+                  match ? "match" : "MISMATCH");
+    if (!ok) allOk = false;
+  };
+
+  checkPut("halow_ssid",    c.halowSsid);
+  checkPut("halow_psk",     c.halowPsk);
+  checkPut("wifi_ssid",     c.wifiSsid);
+  checkPut("wifi_pass",     c.wifiPass);
+  checkPut("net_mode",      c.netMode);
+  checkPut("device_id",     c.deviceId);
+  checkPut("device_secret", c.deviceSecret);
+
   p.end();
-  return true;
+  if (!allOk) {
+    Serial.println("[nvs] save FAILED -- partition likely full of junk from prior provisions.");
+    Serial.println("[nvs] Fix: Arduino IDE -> Tools -> Erase All Flash Before Sketch Upload -> Enabled, then reflash.");
+  }
+  return allOk;
 }
