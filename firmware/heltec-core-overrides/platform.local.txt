@@ -1,0 +1,16 @@
+# LouieLabs Wildlife Cam -- auto-stamp git SHA into every build.
+#
+# Writes <sketch>/build_version.h with the current short git SHA before each
+# compile. cloud_telemetry_node/version.h picks it up via __has_include and
+# exposes FW_VERSION_STR, which gets printed at boot and shipped to the cloud
+# status report -- so we can see exactly which build is on each device with
+# zero per-release human effort.
+#
+# If git is unavailable, or the sketch isn't inside a git checkout, FW_GIT_SHA
+# falls back to "dev" so the build still compiles. See cloud_telemetry_node/
+# version.h for the fallback.
+#
+# Cross-platform: uses /bin/sh on macOS/Linux; Windows users need Git Bash on
+# PATH (Git for Windows installs it by default).
+
+recipe.hooks.sketch.prebuild.1.pattern=/bin/sh -c 'sha=$(cd "{build.source.path}" && git rev-parse --short HEAD 2>/dev/null || echo dev); printf "#pragma once\n#define FW_GIT_SHA \"%s\"\n" "$sha" > "{build.source.path}/build_version.h"'

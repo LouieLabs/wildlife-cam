@@ -21,6 +21,7 @@ exactly this reason — so future updates never need to repartition.
 |-----------|---------|-----|
 | `boards.local.txt` | `<core>/boards.local.txt` | sets flash **size** to 16 MB + 2 MB sketch guard |
 | `variants/HT-HC33/partitions.csv` | `<core>/variants/HT-HC33/partitions.csv` | the floor plan (**this is what's enforced**) |
+| `platform.local.txt` | `<core>/platform.local.txt` | prebuild hook that stamps the current git SHA into every build (see `cloud_telemetry_node/version.h`) |
 | `factory-originals/HT-HC33-variant-partitions.csv.orig` | (reference only) | the 8 MB table we replaced |
 
 ## Why it takes two files (and why the variant file, not a menu)
@@ -43,10 +44,23 @@ variant table, so re-copy **both** files:
 ```sh
 CORE=/Users/alan/Documents/Arduino/hardware/heltec/esp_halow
 cp boards.local.txt                "$CORE"/boards.local.txt
+cp platform.local.txt              "$CORE"/platform.local.txt
 cp variants/HT-HC33/partitions.csv "$CORE"/variants/HT-HC33/partitions.csv
 ```
 
 Then fully quit and reopen the Arduino IDE so it re-reads the board config.
+
+### What `platform.local.txt` does
+
+Adds a prebuild hook that runs `git rev-parse --short HEAD` before each compile
+and writes the SHA into `<sketch>/build_version.h`. The sketch's `version.h`
+picks it up via `__has_include`, so every build is uniquely identified — the
+SHA shows in the boot log (`[fw] version a1b2c3d (Jun 30 2026 14:32:18)`) and
+in the RTDB status report (`firmwareVersion` field).
+
+Requires `git` on PATH. Windows users need Git Bash (Git for Windows installs
+it by default). If git can't be found, FW_GIT_SHA falls back to `"dev"` and
+the build still succeeds — but you lose the per-commit traceability.
 
 ## The floor plan (locked)
 

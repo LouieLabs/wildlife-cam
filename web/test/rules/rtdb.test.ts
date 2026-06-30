@@ -58,6 +58,19 @@ describe('RTDB rules: secret-protected paths', () => {
     await assertFails(get(ref(db, 'device_meta/cam_a')));
     await assertFails(set(ref(db, 'device_meta/cam_a'), { mac: 'AABBCCDDEEFF' }));
   });
+
+  it('denies reads + writes on /networks (the saved-WiFi notebook is admin-only)', async () => {
+    // Seed an entry under privileged context so we KNOW there's data to fail to read.
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await set(ref(ctx.database(), 'networks/aloha'), {
+        slug: 'aloha', ssid: 'Aloha', password: 'Honolulu',
+        createdBy: 't@x', createdAt: 1, updatedBy: 't@x', updatedAt: 1,
+      });
+    });
+    const db = env.unauthenticatedContext().database();
+    await assertFails(get(ref(db, 'networks/aloha')));
+    await assertFails(set(ref(db, 'networks/aloha'), { password: 'attacker' }));
+  });
 });
 
 describe('RTDB rules: /devices/{id}/state -- secret-gated client write', () => {

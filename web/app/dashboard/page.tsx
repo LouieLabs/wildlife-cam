@@ -106,6 +106,10 @@ export default function DashboardPage() {
   return (
     <main style={{ maxWidth: 760, margin: '0 auto', padding: 24 }}>
       <h1>Live dashboard</h1>
+      <nav style={{ display: 'flex', gap: 14, fontSize: 14, margin: '4px 0 16px', color: '#475569' }}>
+        <a href="/provision">Set up a camera</a>
+        <a href="/networks">Saved Wi-Fi networks</a>
+      </nav>
       {error && <p style={{ color: '#f87171' }}>{error}</p>}
 
       <h2 style={{ fontSize: 18 }}>Cameras</h2>

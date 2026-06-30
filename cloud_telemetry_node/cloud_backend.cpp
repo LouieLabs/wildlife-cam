@@ -2,6 +2,7 @@
 #include "node_config.h"
 #include "secrets.h"
 #include "device_config.h"
+#include "version.h"
 
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
@@ -100,10 +101,14 @@ bool reportStatus(const char *status, int batteryPct, long long updatedAt) {
   snprintf(ts, sizeof(ts), "%lld", updatedAt);
 
   // Build the JSON body. The secret is what the database rule checks.
+  // firmwareVersion is auto-stamped at build time (see version.h) so the
+  // dashboard can show which build is on each device without any per-release
+  // bookkeeping.
   String body = "{";
   body += "\"status\":\"" + String(status) + "\",";
   body += "\"battery\":" + String(batteryPct) + ",";
   body += "\"secret\":\"" + g_cfg.deviceSecret + "\",";
+  body += "\"firmwareVersion\":\"" + String(FW_VERSION_STR) + "\",";
   body += "\"updatedAt\":" + String(ts);
   body += "}";
 

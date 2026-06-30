@@ -19,6 +19,11 @@
     "device_meta": {
       ".read": false,
       ".write": false
+    },
+
+    "networks": {
+      ".read": false,
+      ".write": false
     }
   }
 }

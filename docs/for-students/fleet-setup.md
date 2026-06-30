@@ -75,9 +75,21 @@ Leave that browser tab open — you'll use it again in Step 3.
    — this gives the page a fresh 10-second window to catch the board.
 3. On the webpage, click **Connect**. A picker opens — choose the same serial
    port you used in Arduino IDE.
-4. Enter your **Wi-Fi name + password** (2.4 GHz network), and confirm the
-   camera ID from Step 1.
-5. Click **Provision** (or **Save**). The page resets the board, reads its
+4. Pick the **2.4 GHz Wi-Fi network** from the dropdown:
+   - **Saved network** (e.g. "Aloha (saved)"): nothing to type — the password
+     comes from the cloud notebook and is never shown to you. Common case
+     once your school's network is in the notebook.
+   - **+ New network (save for future cameras)**: type SSID + password, leave
+     "Save this network for future cameras" checked. Future students setting
+     up cameras on the same network won't have to ask for the password.
+   - **+ One-off (don't save)**: type SSID + password for a test network you
+     don't want stored.
+
+   The cloud notebook of saved networks lives at the
+   [Saved Wi-Fi networks](/networks) page (linked from the dashboard) — admins
+   can view, edit, or delete entries there.
+5. Confirm the camera ID from Step 1.
+6. Click **Provision** (or **Save**). The page resets the board, reads its
    identity, mints a 10-character secret (`XXX-XXX-XXXX`), and writes
    everything to the board's NVS (its permanent settings storage). ~10 s.
 
@@ -113,6 +125,14 @@ Wi-Fi reach.
 - **No more `secrets.h` editing.** Wi-Fi + identity live in NVS (permanent
   settings) now. If you reflash the firmware to update code, those settings
   survive — you don't have to provision again.
+- **Every boot tags itself.** The serial log prints `[fw] version a1b2c3d
+  (Jun 30 2026 14:32:18)` — that's the **git short SHA** of the commit you
+  built from plus the compile date/time, stamped automatically by the build
+  hook (see [`firmware/heltec-core-overrides/README.md`](../../firmware/heltec-core-overrides/README.md)).
+  The same string is shipped up in the status report so the dashboard knows
+  which build is on each device. If you see `dev` instead of a SHA, the
+  prebuild hook didn't run — check that `git` is on your PATH and that you
+  copied `platform.local.txt` into the Heltec core.
 
 ## Common issues
 
@@ -124,6 +144,7 @@ Wi-Fi reach.
 | Board "stuck" — no serial output, won't reflash | Unplug USB for **5 full seconds**, then re-plug. A reset button isn't always enough. |
 | Upload fails with checksum errors | Upload Speed is too high. Set it to **460800** (not 921600). |
 | Provisioned but nothing on the dashboard | Confirm the camera ID on the dashboard matches what you provisioned. Refresh the dashboard. |
+| Provisioning page says ✓ but boot still says `(NOT provisioned)` | Stale junk in the chip's settings storage is swallowing new writes. **Tools → Erase All Flash Before Sketch Upload → Enabled**, reflash once, then switch the setting back to **Disabled** and re-provision. |
 
 ## If you can't use Chrome/Edge desktop
 
