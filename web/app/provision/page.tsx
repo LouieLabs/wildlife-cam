@@ -70,7 +70,7 @@ export default function ProvisionPage() {
   const halowPskOk = (s: string) => wpaOk(s) || /^[0-9a-fA-F]{64}$/.test(s); // or 64-hex key
   const idOk = /^[A-Za-z0-9_-]{3,40}$/.test(deviceId.trim());
 
-  const idErr = deviceId.length > 0 && !idOk ? 'Use 3–40 of: A–Z, a–z, 0–9, _ or -' : '';
+  const idErr = deviceId.length > 0 && !idOk ? '3–40 characters: A–Z, a–z, 0–9, _ or -' : '';
   const wifiSsidErr = wifiSsid.length > 0 && !ssidOk(wifiSsid) ? 'Too long (max 32 characters)' : '';
   const wifiPassErr = wifiPass.length > 0 && !wpaOk(wifiPass) ? 'Must be 8–63 characters' : '';
   const halowSsidErr = halowSsid.length > 0 && !ssidOk(halowSsid) ? 'Too long (max 32 characters)' : '';
@@ -331,7 +331,7 @@ export default function ProvisionPage() {
       <h3 id="step2" style={{ marginBottom: 8 }}>Step 2 — Enter the camera’s network details (after successful Step 1 install)</h3>
       <label>Camera name (device ID)</label>
       <input style={field} value={deviceId} onChange={(e) => setDeviceId(e.target.value)} placeholder="pond_cam_02" />
-      {hint('3–40 characters: a–z, 0–9, _ or -', idErr)}
+      {hint('3–40 characters: A–Z, a–z, 0–9, _ or -', idErr)}
 
       <label>Which radio(s)?</label>
       <select style={field} value={mode} onChange={(e) => setMode(e.target.value as Mode)}>
