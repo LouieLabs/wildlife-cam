@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
   } catch {
     // missing body falls through to the deviceId check below
   }
-  const deviceId = String(body?.deviceId || '').toLowerCase().trim();
+  const deviceId = String(body?.deviceId || '').trim();
 
   try {
     await requireDeviceSecret(req, deviceId);

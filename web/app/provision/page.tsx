@@ -70,7 +70,18 @@ export default function ProvisionPage() {
   const halowPskOk = (s: string) => wpaOk(s) || /^[0-9a-fA-F]{64}$/.test(s); // or 64-hex key
   const idOk = /^[A-Za-z0-9_-]{3,40}$/.test(deviceId.trim());
 
-  const idErr = deviceId.length > 0 && !idOk ? '3–40 characters: A–Z, a–z, 0–9, _ or -' : '';
+  // Only call out an ERROR when the input has gone somewhere it can't recover
+  // from by typing more -- a forbidden character, or past the 40-char limit.
+  // A 1- or 2-char id is still "in progress"; don't punish that with red ink.
+  // canSubmit below still requires idOk so the button stays disabled until 3+
+  // valid chars.
+  const idHasBadChar = deviceId.trim().length > 0 && /[^A-Za-z0-9_-]/.test(deviceId.trim());
+  const idTooLong = deviceId.trim().length > 40;
+  const idErr = idTooLong
+    ? 'Too long (max 40 characters)'
+    : idHasBadChar
+      ? 'Only A–Z, a–z, 0–9, _ or - allowed'
+      : '';
   const wifiSsidErr = wifiSsid.length > 0 && !ssidOk(wifiSsid) ? 'Too long (max 32 characters)' : '';
   const wifiPassErr = wifiPass.length > 0 && !wpaOk(wifiPass) ? 'Must be 8–63 characters' : '';
   const halowSsidErr = halowSsid.length > 0 && !ssidOk(halowSsid) ? 'Too long (max 32 characters)' : '';
@@ -382,7 +393,7 @@ export default function ProvisionPage() {
 
           {wifiSource === 'saved' ? (
             <div style={{ padding: 10, background: '#f5f7fb', border: '1px solid #dbe1ec', borderRadius: 6, marginBottom: 12, fontSize: 13, color: '#555' }}>
-              Will use the saved password for <b>{savedNetworks.find((n) => n.slug === savedSlug)?.ssid || savedSlug}</b>. The student never sees it.
+              Will use the saved password for <b>{savedNetworks.find((n) => n.slug === savedSlug)?.ssid || savedSlug}</b>.
             </div>
           ) : (
             <>

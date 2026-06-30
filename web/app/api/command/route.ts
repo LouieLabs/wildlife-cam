@@ -28,10 +28,10 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
 
-    const deviceId = String(body.deviceId || '').toLowerCase().trim();
+    const deviceId = String(body.deviceId || '').trim();
     const action = String(body.action || '').toLowerCase().trim();
 
-    if (!/^[a-z0-9_-]{3,40}$/.test(deviceId)) {
+    if (!/^[A-Za-z0-9_-]{3,40}$/.test(deviceId)) {
       return NextResponse.json({ error: 'Invalid device ID' }, { status: 400 });
     }
     if (!ALLOWED.has(action)) {
