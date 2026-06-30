@@ -31,12 +31,17 @@ bool flashInit() {
   return true;
 }
 
-String flashSaveJpeg(const uint8_t *data, size_t len, long long tsMs, uint32_t seq) {
+String flashSaveJpeg(const uint8_t *data, size_t len, long long tsMs, uint32_t seq, const char *reason) {
   if (!g_fs_ok) return "";
 
-  char path[64];
-  if (tsMs > 0) snprintf(path, sizeof(path), "%s/wildcam_%lld.jpg", WILDCAM_DIR, tsMs);
-  else          snprintf(path, sizeof(path), "%s/wildcam_%lu.jpg", WILDCAM_DIR, (unsigned long)seq);
+  // Sanitize reason -> uppercase letters only (defensive; caller passes a known
+  // literal). Filename embeds it so a pending-photo upload can recover what
+  // kind of event triggered the capture.
+  const char *safeReason = (reason && *reason) ? reason : "UNKNOWN";
+
+  char path[80];
+  if (tsMs > 0) snprintf(path, sizeof(path), "%s/%s_%lld.jpg", WILDCAM_DIR, safeReason, tsMs);
+  else          snprintf(path, sizeof(path), "%s/%s_seq%lu.jpg", WILDCAM_DIR, safeReason, (unsigned long)seq);
 
   File f = LittleFS.open(path, FILE_WRITE);
   if (!f) {
@@ -66,6 +71,28 @@ bool flashDelete(const String &path) {
   bool ok = LittleFS.remove(path);
   Serial.printf("[flash] %s %s\n", ok ? "deleted" : "delete FAILED:", path.c_str());
   return ok;
+}
+
+void flashParsePath(const String &path, String &reasonOut, long long &tsMsOut) {
+  // Strip directory; expect "<REASON>_<rest>.jpg" or legacy "wildcam_<ts>.jpg".
+  int slash = path.lastIndexOf('/');
+  String base = slash >= 0 ? path.substring(slash + 1) : path;
+  int dot = base.lastIndexOf(".jpg");
+  if (dot >= 0) base = base.substring(0, dot);
+
+  int us = base.indexOf('_');
+  if (us < 0) { reasonOut = "UNKNOWN"; tsMsOut = 0; return; }
+  String left = base.substring(0, us);
+  String right = base.substring(us + 1);
+  // Legacy "wildcam_<ts>.jpg" predates the reason prefix.
+  if (left == "wildcam") {
+    reasonOut = "UNKNOWN";
+    tsMsOut = right.length() ? atoll(right.c_str()) : 0;
+    return;
+  }
+  reasonOut = left;
+  // right is either "<epochMs>" or "seq<N>"; only epoch ms maps to a real time.
+  tsMsOut = right.startsWith("seq") ? 0LL : atoll(right.c_str());
 }
 
 int flashListPending(String out[], int maxN) {

@@ -35,6 +35,16 @@ export async function POST(req: NextRequest) {
     // missing body falls through to the deviceId check below
   }
   const deviceId = String(body?.deviceId || '').trim();
+  // Wake reason ("PIR" / "BUTTON" / "TIMER" / "COLDBOOT" / "UNKNOWN") and the
+  // ORIGINAL capture time (epoch ms; 0 if NTP wasn't synced). The firmware
+  // passes both -- for pending-photo uploads it parses them out of the LittleFS
+  // filename so the cloud name reflects when the photo was TAKEN, not when it
+  // was finally uploaded. Defensive sanitization: clamp reason to a small set;
+  // fall back to upload-time clock if capturedAt is missing/zero.
+  const ALLOWED_REASONS = new Set(['PIR', 'BUTTON', 'TIMER', 'COLDBOOT', 'UNKNOWN']);
+  const reasonRaw = String(body?.wakeReason || '').toUpperCase();
+  const reason = ALLOWED_REASONS.has(reasonRaw) ? reasonRaw : 'UNKNOWN';
+  const capturedAt = Number(body?.capturedAt) > 0 ? Number(body.capturedAt) : Date.now();
 
   try {
     await requireDeviceSecret(req, deviceId);
@@ -45,11 +55,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Internal error' }, { status: 500 });
   }
 
-  // Tag the path by environment so dev images all live under "dev/" and can be
-  // purged without touching prod. This is THE chokepoint -- every image reaching
-  // the bucket (field auto-capture, a "save" button, future movies) comes
-  // through here, so everything is tagged automatically.
-  const objectName = `${APP_ENV}/uploads/${deviceId}/${Date.now()}.jpg`;
+  // Build descriptive object name: <deviceId>_YYMMDD-HHMMSS_<REASON>.jpg
+  // UTC chosen over local TZ so names sort cleanly across cameras in different
+  // timezones. Tag the parent path by environment so dev images all live under
+  // "dev/" and can be purged without touching prod -- this is THE chokepoint
+  // for every image reaching the bucket.
+  const d = new Date(capturedAt);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const stamp =
+    String(d.getUTCFullYear()).slice(-2) + pad(d.getUTCMonth() + 1) + pad(d.getUTCDate()) +
+    '-' +
+    pad(d.getUTCHours()) + pad(d.getUTCMinutes()) + pad(d.getUTCSeconds());
+  const objectName = `${APP_ENV}/uploads/${deviceId}/${deviceId}_${stamp}_${reason}.jpg`;
   const [uploadUrl] = await storage
     .bucket(BUCKET)
     .file(objectName)
