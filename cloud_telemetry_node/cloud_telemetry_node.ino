@@ -56,15 +56,18 @@ static void goToDeepSleep(uint32_t seconds) {
 
 // Power up the camera, grab one JPEG, upload it via a signed link, then tell
 // the backend (which clears the command and records the capture).
-static void doTakePicture() {
+// reason: "PIR"/"BUTTON"/"TIMER"/"COLDBOOT" -- feeds the descriptive object name.
+static void doTakePicture(const char *reason) {
   Serial.println("[command] take_picture -> capturing");
   if (!cameraInit()) return;
 
   camera_fb_t *fb = cameraCapture();
   if (fb) {
     Serial.printf("[cam] captured %u bytes\n", (unsigned)fb->len);
+    long epoch = getEpochSeconds();
+    long long tsMs = epoch ? (long long)epoch * 1000LL : 0LL;
     String objectName;
-    String signedUrl = requestUploadUrl(objectName);
+    String signedUrl = requestUploadUrl(objectName, reason, tsMs);
     if (signedUrl.length() && uploadJpeg(signedUrl, fb->buf, fb->len)) {
       Serial.println("[upload] photo uploaded ✓");
       if (captureComplete(objectName)) Serial.println("[command] cleared by backend ✓");
@@ -88,8 +91,14 @@ static void uploadPendingPhotos() {
   Serial.printf("[cycle] %d photo(s) pending upload\n", n);
 
   for (int i = 0; i < n; i++) {
+    // Recover the ORIGINAL capture's reason + time from the LittleFS filename so
+    // a photo uploaded one wake later still gets a descriptive cloud name (not
+    // the upload-time clock).
+    String reason; long long capTs = 0;
+    flashParsePath(pending[i], reason, capTs);
+
     String objectName;
-    String signedUrl = requestUploadUrl(objectName);
+    String signedUrl = requestUploadUrl(objectName, reason.c_str(), capTs);
     if (!signedUrl.length()) {
       Serial.println("[upload] no signed URL -> stopping, retry next wake");
       break;
@@ -113,7 +122,9 @@ static void uploadPendingPhotos() {
 // Basic telemetry test (no PIR yet): capture a photo, SAVE IT TO FLASH, wait
 // 5 s, then upload. The 5 s stands in for the future "wait for a lull" step.
 // The photo stays in flash until its upload is confirmed, so it's never lost.
-static void captureSaveUpload() {
+// reason: "PIR"/"BUTTON"/"TIMER"/"COLDBOOT" -- baked into the LittleFS filename
+// so a delayed upload still tells the cloud what triggered the capture.
+static void captureSaveUpload(const char *reason) {
   Serial.println("[cycle] capture -> flash -> wait -> upload");
   if (!cameraInit()) { Serial.println("[cam] init failed"); return; }
 
@@ -123,7 +134,7 @@ static void captureSaveUpload() {
 
   long epoch = getEpochSeconds();
   long long tsMs = epoch ? (long long)epoch * 1000LL : 0LL;
-  String path = flashSaveJpeg(fb->buf, fb->len, tsMs, ++captureSeq);
+  String path = flashSaveJpeg(fb->buf, fb->len, tsMs, ++captureSeq, reason);
   cameraReturn(fb);
   cameraDeinit();   // done with the camera; save power during the wait + upload
   if (!path.length()) { Serial.println("[flash] save failed -> skip upload"); return; }
@@ -145,6 +156,9 @@ void setup() {
   bool coldBoot   = (!motionWake && !buttonWake && !timerWake);  // power-on / reset
   const char *why = motionWake ? "MOTION wake" : buttonWake ? "BUTTON wake"
                   : timerWake  ? "timer wake"  : "cold boot";
+  // Short tag for the cloud filename (see version.h + get-upload-url).
+  const char *wakeReason = motionWake ? "PIR" : buttonWake ? "BUTTON"
+                         : timerWake  ? "TIMER" : "COLDBOOT";
   Serial.printf("\n=== wake #%u (wake reason: %d, %s) ===\n", bootCount, (int)cause, why);
   Serial.printf("[fw] version %s\n", FW_VERSION_STR);
 
@@ -205,7 +219,7 @@ void setup() {
   //      plain timer check-in we skip the new photo but still flush anything
   //      left from a previous failed upload. Either way nothing is lost.
   if (flashInit()) {
-    if (motionWake || buttonWake || coldBoot) captureSaveUpload();  // new photo + flush
+    if (motionWake || buttonWake || coldBoot) captureSaveUpload(wakeReason);  // new photo + flush
     else                                      uploadPendingPhotos();// timer: retry only
   } else {
     Serial.println("[flash] init failed -> skipping capture cycle");
@@ -216,7 +230,7 @@ void setup() {
   String cmd = getCommand();
   Serial.printf("[command] pending = %s\n", cmd.c_str());
   if (cmd == "take_picture") {
-    doTakePicture();
+    doTakePicture(wakeReason);
   }
 
   // 4) Back to sleep.

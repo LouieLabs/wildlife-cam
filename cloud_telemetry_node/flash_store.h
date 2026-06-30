@@ -15,10 +15,20 @@
 // exists. Returns true on success.
 bool flashInit();
 
-// Save a JPEG to /wildcam. Uses an epoch-ms name when the clock is real,
-// otherwise a sequence number (same naming as the old SD path). Returns the
-// file path, or "" on failure.
-String flashSaveJpeg(const uint8_t *data, size_t len, long long tsMs, uint32_t seq);
+// Save a JPEG to /wildcam. Filename embeds the wake reason + capture time so a
+// photo uploaded on a later wake (pending-photo flow) still gets a descriptive
+// cloud name. Format: /wildcam/<REASON>_<epochMs>.jpg, or /wildcam/<REASON>_seq<N>.jpg
+// when NTP hasn't synced yet (tsMs == 0).
+//
+// reason: one of "PIR", "BUTTON", "TIMER", "COLDBOOT" -- caller derives from
+// the wake cause. Returns the file path, or "" on failure.
+String flashSaveJpeg(const uint8_t *data, size_t len, long long tsMs, uint32_t seq, const char *reason);
+
+// Parse a path written by flashSaveJpeg back into reason + capture time. Used
+// by the upload flow so a pending-photo upload can tell the cloud what kind of
+// event triggered the original capture. Legacy "wildcam_<ts>.jpg" maps to
+// reason="UNKNOWN".
+void flashParsePath(const String &path, String &reasonOut, long long &tsMsOut);
 
 // Open a saved file for reading (caller closes it).
 File flashOpen(const String &path);
