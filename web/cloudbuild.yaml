@@ -29,7 +29,7 @@ steps:
           > /etc/apt/sources.list.d/backports.list
         apt-get update -qq
         apt-get install -y -qq --no-install-recommends \
-          -t bookworm-backports openjdk-21-jre-headless
+          -t bookworm-backports openjdk-21-jdk-headless
         cd web
         npm ci
         npm test
