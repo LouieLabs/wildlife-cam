@@ -13,15 +13,23 @@ steps:
   #    and abort on a non-zero exit, so a failing test here prevents the docker
   #    build and deploy. Java is needed for the emulator (the only reason this
   #    step uses a debian image + apt-get instead of plain `node:20`).
+  #    firebase-tools dropped JDK <21 support, but Debian 12 (bookworm, what
+  #    node:20 ships with) only has openjdk-21 in backports -- so we enable
+  #    that repo before installing. Pin the base to -bookworm so a future
+  #    Docker Hub flip to trixie doesn't silently break the apt source line.
   #    Local dev: `npm test` for the fast suite, `npm run test:rules` for rules.
-  - name: 'node:20'
+  - name: 'node:20-bookworm'
     entrypoint: 'bash'
     args:
       - '-c'
       - |
         set -eu
         apt-get update -qq
-        apt-get install -y -qq --no-install-recommends openjdk-17-jre-headless
+        echo 'deb http://deb.debian.org/debian bookworm-backports main' \
+          > /etc/apt/sources.list.d/backports.list
+        apt-get update -qq
+        apt-get install -y -qq --no-install-recommends \
+          -t bookworm-backports openjdk-21-jre-headless
         cd web
         npm ci
         npm test
