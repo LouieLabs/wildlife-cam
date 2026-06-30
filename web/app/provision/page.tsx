@@ -227,9 +227,20 @@ export default function ProvisionPage() {
       append('Camera MAC: ' + mac);
 
       append('Registering on the dashboard…');
+      // Send the network creds we're about to write to NVS so the dashboard can
+      // show "this camera is on network X" without asking the board later. The
+      // backend stores them in device_meta (admin-only, like MAC + secret).
       const res = await authedFetch('/api/register-device', {
         method: 'POST',
-        body: JSON.stringify({ deviceId: id, mac: mac.replace(/[^0-9a-fA-F]/g, '') }),
+        body: JSON.stringify({
+          deviceId: id,
+          mac: mac.replace(/[^0-9a-fA-F]/g, ''),
+          netMode: mode,
+          wifiSsid: wantWifi ? effectiveWifiSsid : '',
+          wifiPass: wantWifi ? effectiveWifiPass : '',
+          halowSsid: wantHalow ? halowSsid : '',
+          halowPsk: wantHalow ? halowPsk : '',
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'register-device failed');

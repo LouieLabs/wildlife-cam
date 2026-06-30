@@ -39,6 +39,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'MAC must be 12 hex characters' }, { status: 400 });
     }
 
+    // Optional network creds: the provision page sends what it just wrote to
+    // NVS so the dashboard can show "this camera is on network X" without
+    // having to ask the board. Stored in device_meta alongside MAC; visible
+    // to any signed-in @louielabs.com user via /api/devices. Empty strings
+    // mean "not provisioned on that radio".
+    const netMode = String(body.netMode || '').trim();           // wifi|halow|both|""
+    const wifiSsid = String(body.wifiSsid || '');
+    const wifiPass = String(body.wifiPass || '');
+    const halowSsid = String(body.halowSsid || '');
+    const halowPsk = String(body.halowPsk || '');
+
     const secret = generateDeviceSecret();
 
     // Registry + metadata live in the Realtime Database (admin-only paths).
@@ -48,6 +59,11 @@ export async function POST(req: NextRequest) {
       mac,
       registeredBy: user.email,
       registeredAt: Date.now(),
+      netMode: netMode || null,
+      wifiSsid: wifiSsid || null,
+      wifiPass: wifiPass || null,
+      halowSsid: halowSsid || null,
+      halowPsk: halowPsk || null,
     });
     // Seed an idle command so the device has something to poll on first boot.
     await rtdbSet(`devices/${deviceId}/command`, 'idle');
