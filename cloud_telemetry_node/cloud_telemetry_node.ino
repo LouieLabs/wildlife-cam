@@ -119,13 +119,27 @@ static void uploadPendingPhotos() {
   Serial.printf("[flash] room for ~%d more photos\n", picsRemaining());
 }
 
-// Basic telemetry test (no PIR yet): capture a photo, SAVE IT TO FLASH, wait
-// 5 s, then upload. The 5 s stands in for the future "wait for a lull" step.
-// The photo stays in flash until its upload is confirmed, so it's never lost.
+// Capture a photo, SAVE IT TO FLASH, optionally wait, then upload. The wait
+// only fires on a PIR wake -- the 5 s is a placeholder for the future "wait
+// for a lull" step that lets motion settle before the upload + sleep. A
+// button press, timer wake, or cold boot has nothing to settle, so we skip
+// the delay and save 5 s of awake time (= battery).
+//
 // reason: "PIR"/"BUTTON"/"TIMER"/"COLDBOOT" -- baked into the LittleFS filename
-// so a delayed upload still tells the cloud what triggered the capture.
+// so a delayed upload still tells the cloud what triggered the capture, and
+// printed at the front of the cycle log so it's easy to scan multi-wake logs.
 static void captureSaveUpload(const char *reason) {
-  Serial.println("[cycle] capture -> flash -> wait -> upload");
+  // Title case the reason for the log line; PIR stays uppercase since it's an
+  // acronym. Filenames + cloud names keep the canonical uppercase form.
+  const char *reasonDisplay =
+      strcmp(reason, "COLDBOOT") == 0 ? "Coldboot" :
+      strcmp(reason, "BUTTON")   == 0 ? "Button"   :
+      strcmp(reason, "TIMER")    == 0 ? "Timer"    :
+      strcmp(reason, "PIR")      == 0 ? "PIR"      : reason;
+  bool needWait = (strcmp(reason, "PIR") == 0);
+  Serial.printf("[cycle] %s capture -> flash%s -> upload\n",
+                reasonDisplay, needWait ? " -> wait" : "");
+
   if (!cameraInit()) { Serial.println("[cam] init failed"); return; }
 
   camera_fb_t *fb = cameraCapture();
@@ -139,8 +153,10 @@ static void captureSaveUpload(const char *reason) {
   cameraDeinit();   // done with the camera; save power during the wait + upload
   if (!path.length()) { Serial.println("[flash] save failed -> skip upload"); return; }
 
-  Serial.printf("[cycle] waiting %d ms before upload...\n", CAPTURE_WAIT_MS);
-  delay(CAPTURE_WAIT_MS);
+  if (needWait) {
+    Serial.printf("[cycle] waiting %d ms before upload...\n", CAPTURE_WAIT_MS);
+    delay(CAPTURE_WAIT_MS);
+  }
 
   uploadPendingPhotos();
 }
