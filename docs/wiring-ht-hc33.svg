@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 620" font-family="-apple-system, system-ui, sans-serif">
+  <style>
+    .board    { fill:#f4f6fb; stroke:#1f2a44; stroke-width:2; }
+    .module   { fill:#ffffff; stroke:#1f2a44; stroke-width:1.5; }
+    .power    { fill:#fff7e6; stroke:#a06600; stroke-width:1.5; }
+    .radio    { fill:#eaf3ff; stroke:#0b5cad; stroke-width:1.5; }
+    .sensor   { fill:#ecf9ee; stroke:#1f7a3a; stroke-width:1.5; }
+    .free     { fill:#fafafa; stroke:#888; stroke-width:1; stroke-dasharray:4 3; }
+    .title    { font-size:18px; font-weight:700; fill:#1f2a44; }
+    .label    { font-size:13px; fill:#1f2a44; }
+    .pin      { font-size:12px; fill:#1f2a44; font-weight:600; }
+    .note     { font-size:11px; fill:#555; }
+    .wire     { stroke:#1f2a44; stroke-width:1.5; fill:none; }
+    .wirepwr  { stroke:#a06600; stroke-width:2;   fill:none; }
+    .wireint  { stroke:#0b5cad; stroke-width:1.5; fill:none; stroke-dasharray:5 3; }
+  </style>
+
+  <!-- Title -->
+  <text x="450" y="28" text-anchor="middle" class="title">HT-HC33 (ESP32-S3 + HaLow) — current wiring</text>
+  <text x="450" y="46" text-anchor="middle" class="note">Camera + HaLow are on-board. Two capture triggers: PIR motion (ext0) and USER button (ext1).</text>
+
+  <!-- Board -->
+  <rect x="320" y="200" width="260" height="220" rx="10" class="board"/>
+  <text x="450" y="225" text-anchor="middle" class="title">HT-HC33</text>
+  <text x="450" y="244" text-anchor="middle" class="note">ESP32-S3R8 · 8MB PSRAM · 16MB Flash</text>
+
+  <!-- On-board: Camera (FPC) -->
+  <rect x="340" y="265" width="100" height="46" rx="6" class="module"/>
+  <text x="390" y="284" text-anchor="middle" class="label">OV3660 cam</text>
+  <text x="390" y="300" text-anchor="middle" class="note">24-pin FPC (built-in)</text>
+
+  <!-- On-board: HaLow radio -->
+  <rect x="460" y="265" width="100" height="46" rx="6" class="radio"/>
+  <text x="510" y="284" text-anchor="middle" class="label">HT-HC01 HaLow</text>
+  <text x="510" y="300" text-anchor="middle" class="note">SPI · GPIO 2–9</text>
+
+  <!-- On-board: USER button GPIO0 -->
+  <rect x="340" y="330" width="100" height="38" rx="6" class="sensor" stroke-width="2.5"/>
+  <text x="390" y="348" text-anchor="middle" class="label">USER btn</text>
+  <text x="390" y="362" text-anchor="middle" class="pin">GPIO 0 (ext1)</text>
+
+  <!-- Callout: manual trigger -->
+  <rect x="600" y="125" width="260" height="60" rx="8" class="sensor" stroke-width="2.5"/>
+  <text x="730" y="146" text-anchor="middle" class="label" font-weight="700">MANUAL TRIGGER</text>
+  <text x="730" y="162" text-anchor="middle" class="note">Tap onboard USER button → wakes board</text>
+  <text x="730" y="176" text-anchor="middle" class="note">and runs the same capture-and-upload cycle.</text>
+  <path class="wire" d="M620 185 C 540 200, 460 290, 420 330"/>
+
+  <!-- Callout: motion trigger -->
+  <rect x="40" y="125" width="260" height="60" rx="8" class="sensor" stroke-width="2.5"/>
+  <text x="170" y="146" text-anchor="middle" class="label" font-weight="700">MOTION TRIGGER</text>
+  <text x="170" y="162" text-anchor="middle" class="note">PIR sees movement → wakes board</text>
+  <text x="170" y="176" text-anchor="middle" class="note">and runs the same capture-and-upload cycle.</text>
+  <path class="wire" d="M170 185 C 165 220, 160 250, 150 270"/>
+
+  <!-- On-board: Battery sense -->
+  <rect x="460" y="330" width="100" height="38" rx="6" class="power"/>
+  <text x="510" y="348" text-anchor="middle" class="label">VBAT/2 sense</text>
+  <text x="510" y="362" text-anchor="middle" class="pin">GPIO 1 · 20</text>
+
+  <!-- On-board: USB-C -->
+  <rect x="340" y="380" width="220" height="32" rx="6" class="power"/>
+  <text x="450" y="400" text-anchor="middle" class="label">USB-C (CP2102) · 5V + serial + flash</text>
+
+  <!-- External: PIR -->
+  <rect x="40" y="270" width="220" height="100" rx="8" class="sensor"/>
+  <text x="150" y="292" text-anchor="middle" class="title" font-size="15">PIR motion sensor</text>
+  <text x="150" y="312" text-anchor="middle" class="note">HC-SR501 (5V) or AM312 (3.3V)</text>
+  <text x="60"  y="335" class="pin">OUT</text>
+  <text x="60"  y="352" class="pin">VCC</text>
+  <text x="60"  y="369" class="pin">GND</text>
+  <text x="250" y="335" text-anchor="end" class="pin">→ GPIO 15 (ext0 wake)</text>
+  <text x="250" y="352" text-anchor="end" class="pin">→ 5V or 3V3</text>
+  <text x="250" y="369" text-anchor="end" class="pin">→ GND</text>
+
+  <!-- Wires PIR -> board -->
+  <path class="wire"    d="M260 335 C 290 335, 300 340, 320 340"/>
+  <path class="wirepwr" d="M260 352 C 290 352, 300 392, 340 396"/>
+  <path class="wire"    d="M260 369 C 290 369, 300 400, 340 404"/>
+
+  <!-- External: battery -->
+  <rect x="640" y="280" width="220" height="80" rx="8" class="power"/>
+  <text x="750" y="302" text-anchor="middle" class="title" font-size="15">Li-ion battery</text>
+  <text x="750" y="320" text-anchor="middle" class="note">JST-PH · onboard charger via USB-C</text>
+  <text x="660" y="346" class="pin">+ / −</text>
+  <text x="850" y="346" text-anchor="end" class="pin">→ BAT connector</text>
+
+  <!-- Wire battery -> board -->
+  <path class="wirepwr" d="M640 340 C 610 360, 600 380, 580 392"/>
+
+  <!-- Free GPIO pool -->
+  <rect x="40" y="450" width="820" height="60" rx="8" class="free"/>
+  <text x="60" y="472" class="label" font-weight="700">Free pins (HT-HC33 GPIO budget)</text>
+  <text x="60" y="492" class="note">10 · 11 · 16 · 41 — plus 15 already used by PIR. Camera + HaLow consume everything else.</text>
+  <text x="60" y="506" class="note">For 4+ peripherals (servos, MOSFETs, extra sensors): add a PCA9685 over I²C and expand from there.</text>
+
+  <!-- Legend -->
+  <g transform="translate(40,540)">
+    <rect width="14" height="14" class="sensor"/>
+    <text x="22" y="12" class="note">sensor / input</text>
+    <rect x="130" width="14" height="14" class="radio"/>
+    <text x="152" y="12" class="note">radio (internal SPI)</text>
+    <rect x="300" width="14" height="14" class="power"/>
+    <text x="322" y="12" class="note">power / battery</text>
+    <rect x="450" width="14" height="14" class="free"/>
+    <text x="472" y="12" class="note">unused / available</text>
+    <line x1="600" y1="7" x2="640" y2="7" class="wire"/>
+    <text x="648" y="12" class="note">signal</text>
+    <line x1="700" y1="7" x2="740" y2="7" class="wirepwr"/>
+    <text x="748" y="12" class="note">power</text>
+  </g>
+
+  <text x="450" y="600" text-anchor="middle" class="note">Source of truth: cloud_telemetry_node/pir_wake.h · user_button.h · node_config.h</text>
+</svg>
