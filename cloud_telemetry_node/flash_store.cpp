@@ -1,4 +1,8 @@
 #include "flash_store.h"
+#include "esp_log.h"   // for esp_log_level_set() -- silences the noisy LittleFS
+                        // "Corrupted dir pair" errors that fire on the first boot
+                        // after a full flash erase (begin(true) then formats and
+                        // mounts cleanly anyway). See flashInit().
 
 // Folder for captures (LittleFS supports directories).
 static const char *WILDCAM_DIR = "/wildcam";
@@ -15,9 +19,19 @@ bool flashInit() {
   if (g_fs_ok) return true;
 
   // begin(true) = format the partition if it can't be mounted. That only
-  // happens on the very first boot after flashing the new partition table;
-  // afterwards the stored photos persist across sleep / reset / OTA.
-  if (!LittleFS.begin(true)) {
+  // happens on the very first boot after flashing the new partition table OR
+  // after "Erase device" wiped the LittleFS region; afterwards the stored
+  // photos persist across sleep / reset / OTA.
+  //
+  // The first-mount-then-format path emits LOUD IDF-level "Corrupted dir pair"
+  // + "mount failed" + task_wdt errors before the auto-format heals it. They
+  // look scary in serial monitor for students after an Erase device. Silence
+  // the esp_littlefs error log just for the begin() call -- our own
+  // "[flash] LittleFS OK / FAIL" lines below tell the truth.
+  esp_log_level_set("esp_littlefs", ESP_LOG_NONE);
+  bool mounted = LittleFS.begin(true);
+  esp_log_level_set("esp_littlefs", ESP_LOG_ERROR);
+  if (!mounted) {
     Serial.println("[flash] LittleFS mount/format failed");
     return false;
   }
