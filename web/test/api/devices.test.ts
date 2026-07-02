@@ -44,32 +44,96 @@ describe('GET /api/devices', () => {
     expect(m.rtdbGet).not.toHaveBeenCalled();
   });
 
-  it('maps RTDB state + meta into the dashboard list shape', async () => {
+  it('maps RTDB state + meta + secrets into the dashboard list shape', async () => {
     m.rtdbGet.mockImplementation(async (path: string) => {
       if (path === 'devices') {
         return {
           cam_a: {
-            state: { status: 'online', battery: 87, updatedAt: 1700000000000, secret: 'SHOULD-NOT-LEAK' },
+            state: { status: 'online', battery: 87, updatedAt: 1700000000000, firmwareVersion: 'abc1234 (Jun 30)', secret: 'IGNORED-FROM-STATE' },
             command: 'take_picture',
           },
           cam_b: {},
         };
       }
       if (path === 'device_meta') {
-        return { cam_a: { mac: 'AABBCCDDEEFF' } };
+        return {
+          cam_a: {
+            mac: 'AABBCCDDEEFF',
+            netMode: 'wifi',
+            wifiSsid: 'Aloha',
+            wifiPass: 'Honolulu',
+            halowSsid: null,
+            halowPsk: null,
+          },
+        };
+      }
+      if (path === 'pre_shared_keys') {
+        // Admin-visible per project decision (matches saved-networks notebook).
+        // The route reads this so the dashboard can show the secret per camera.
+        return { cam_a: 'CAM-A-SECRET' };
       }
       return null;
     });
     const res = await GET(makeRequest());
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.devices).toEqual([
-      { deviceId: 'cam_a', status: 'online', battery: 87, lastUpdate: 1700000000000, command: 'take_picture', mac: 'AABBCCDDEEFF' },
-      { deviceId: 'cam_b', status: 'unknown', battery: null, lastUpdate: null, command: 'idle', mac: null },
+    // Order isn't guaranteed (Set union); sort by deviceId for a stable assert.
+    const byId = (a: any, b: any) => a.deviceId.localeCompare(b.deviceId);
+    expect(body.devices.sort(byId)).toEqual([
+      {
+        deviceId: 'cam_a',
+        status: 'online',
+        battery: 87,
+        lastUpdate: 1700000000000,
+        firmwareVersion: 'abc1234 (Jun 30)',
+        command: 'take_picture',
+        mac: 'AABBCCDDEEFF',
+        netMode: 'wifi',
+        wifiSsid: 'Aloha',
+        wifiPass: 'Honolulu',
+        halowSsid: null,
+        halowPsk: null,
+        secret: 'CAM-A-SECRET',
+      },
+      {
+        deviceId: 'cam_b',
+        status: 'unknown',
+        battery: null,
+        lastUpdate: null,
+        firmwareVersion: null,
+        command: 'idle',
+        mac: null,
+        netMode: null,
+        wifiSsid: null,
+        wifiPass: null,
+        halowSsid: null,
+        halowPsk: null,
+        secret: null,
+      },
     ]);
-    // CRITICAL guard: per-device secret must never reach the client. If a refactor
-    // ever leaks state.secret into the response, this assertion fails.
-    expect(JSON.stringify(body)).not.toContain('SHOULD-NOT-LEAK');
+    // The route reads pre_shared_keys (the authoritative secret store) and
+    // ignores any 'secret' that might leak into devices/<id>/state. Guard
+    // against a refactor regression that would echo state.secret instead.
+    expect(JSON.stringify(body)).not.toContain('IGNORED-FROM-STATE');
+  });
+
+  it('includes registered-but-never-reported cameras (in device_meta only)', async () => {
+    m.rtdbGet.mockImplementation(async (path: string) => {
+      if (path === 'devices') return null;
+      if (path === 'device_meta') return { fresh_cam: { mac: '112233445566', netMode: 'wifi' } };
+      if (path === 'pre_shared_keys') return { fresh_cam: 'NEW-SECRET' };
+      return null;
+    });
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.devices).toHaveLength(1);
+    expect(body.devices[0]).toMatchObject({
+      deviceId: 'fresh_cam',
+      status: 'unknown',
+      mac: '112233445566',
+      secret: 'NEW-SECRET',
+    });
   });
 
   it('handles an empty database (no devices yet)', async () => {

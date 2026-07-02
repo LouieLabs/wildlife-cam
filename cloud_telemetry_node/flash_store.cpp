@@ -1,4 +1,8 @@
 #include "flash_store.h"
+#include "esp_log.h"   // for esp_log_level_set() -- silences the noisy LittleFS
+                        // "Corrupted dir pair" errors that fire on the first boot
+                        // after a full flash erase (begin(true) then formats and
+                        // mounts cleanly anyway). See flashInit().
 
 // Folder for captures (LittleFS supports directories).
 static const char *WILDCAM_DIR = "/wildcam";
@@ -15,9 +19,19 @@ bool flashInit() {
   if (g_fs_ok) return true;
 
   // begin(true) = format the partition if it can't be mounted. That only
-  // happens on the very first boot after flashing the new partition table;
-  // afterwards the stored photos persist across sleep / reset / OTA.
-  if (!LittleFS.begin(true)) {
+  // happens on the very first boot after flashing the new partition table OR
+  // after "Erase device" wiped the LittleFS region; afterwards the stored
+  // photos persist across sleep / reset / OTA.
+  //
+  // The first-mount-then-format path emits LOUD IDF-level "Corrupted dir pair"
+  // + "mount failed" + task_wdt errors before the auto-format heals it. They
+  // look scary in serial monitor for students after an Erase device. Silence
+  // the esp_littlefs error log just for the begin() call -- our own
+  // "[flash] LittleFS OK / FAIL" lines below tell the truth.
+  esp_log_level_set("esp_littlefs", ESP_LOG_NONE);
+  bool mounted = LittleFS.begin(true);
+  esp_log_level_set("esp_littlefs", ESP_LOG_ERROR);
+  if (!mounted) {
     Serial.println("[flash] LittleFS mount/format failed");
     return false;
   }
@@ -31,12 +45,17 @@ bool flashInit() {
   return true;
 }
 
-String flashSaveJpeg(const uint8_t *data, size_t len, long long tsMs, uint32_t seq) {
+String flashSaveJpeg(const uint8_t *data, size_t len, long long tsMs, uint32_t seq, const char *reason) {
   if (!g_fs_ok) return "";
 
-  char path[64];
-  if (tsMs > 0) snprintf(path, sizeof(path), "%s/wildcam_%lld.jpg", WILDCAM_DIR, tsMs);
-  else          snprintf(path, sizeof(path), "%s/wildcam_%lu.jpg", WILDCAM_DIR, (unsigned long)seq);
+  // Sanitize reason -> uppercase letters only (defensive; caller passes a known
+  // literal). Filename embeds it so a pending-photo upload can recover what
+  // kind of event triggered the capture.
+  const char *safeReason = (reason && *reason) ? reason : "UNKNOWN";
+
+  char path[80];
+  if (tsMs > 0) snprintf(path, sizeof(path), "%s/%s_%lld.jpg", WILDCAM_DIR, safeReason, tsMs);
+  else          snprintf(path, sizeof(path), "%s/%s_seq%lu.jpg", WILDCAM_DIR, safeReason, (unsigned long)seq);
 
   File f = LittleFS.open(path, FILE_WRITE);
   if (!f) {
@@ -66,6 +85,28 @@ bool flashDelete(const String &path) {
   bool ok = LittleFS.remove(path);
   Serial.printf("[flash] %s %s\n", ok ? "deleted" : "delete FAILED:", path.c_str());
   return ok;
+}
+
+void flashParsePath(const String &path, String &reasonOut, long long &tsMsOut) {
+  // Strip directory; expect "<REASON>_<rest>.jpg" or legacy "wildcam_<ts>.jpg".
+  int slash = path.lastIndexOf('/');
+  String base = slash >= 0 ? path.substring(slash + 1) : path;
+  int dot = base.lastIndexOf(".jpg");
+  if (dot >= 0) base = base.substring(0, dot);
+
+  int us = base.indexOf('_');
+  if (us < 0) { reasonOut = "UNKNOWN"; tsMsOut = 0; return; }
+  String left = base.substring(0, us);
+  String right = base.substring(us + 1);
+  // Legacy "wildcam_<ts>.jpg" predates the reason prefix.
+  if (left == "wildcam") {
+    reasonOut = "UNKNOWN";
+    tsMsOut = right.length() ? atoll(right.c_str()) : 0;
+    return;
+  }
+  reasonOut = left;
+  // right is either "<epochMs>" or "seq<N>"; only epoch ms maps to a real time.
+  tsMsOut = right.startsWith("seq") ? 0LL : atoll(right.c_str());
 }
 
 int flashListPending(String out[], int maxN) {

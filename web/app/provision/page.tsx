@@ -70,7 +70,18 @@ export default function ProvisionPage() {
   const halowPskOk = (s: string) => wpaOk(s) || /^[0-9a-fA-F]{64}$/.test(s); // or 64-hex key
   const idOk = /^[A-Za-z0-9_-]{3,40}$/.test(deviceId.trim());
 
-  const idErr = deviceId.length > 0 && !idOk ? 'Use 3–40 of: A–Z, a–z, 0–9, _ or -' : '';
+  // Only call out an ERROR when the input has gone somewhere it can't recover
+  // from by typing more -- a forbidden character, or past the 40-char limit.
+  // A 1- or 2-char id is still "in progress"; don't punish that with red ink.
+  // canSubmit below still requires idOk so the button stays disabled until 3+
+  // valid chars.
+  const idHasBadChar = deviceId.trim().length > 0 && /[^A-Za-z0-9_-]/.test(deviceId.trim());
+  const idTooLong = deviceId.trim().length > 40;
+  const idErr = idTooLong
+    ? 'Too long (max 40 characters)'
+    : idHasBadChar
+      ? 'Only A–Z, a–z, 0–9, _ or - allowed'
+      : '';
   const wifiSsidErr = wifiSsid.length > 0 && !ssidOk(wifiSsid) ? 'Too long (max 32 characters)' : '';
   const wifiPassErr = wifiPass.length > 0 && !wpaOk(wifiPass) ? 'Must be 8–63 characters' : '';
   const halowSsidErr = halowSsid.length > 0 && !ssidOk(halowSsid) ? 'Too long (max 32 characters)' : '';
@@ -216,9 +227,20 @@ export default function ProvisionPage() {
       append('Camera MAC: ' + mac);
 
       append('Registering on the dashboard…');
+      // Send the network creds we're about to write to NVS so the dashboard can
+      // show "this camera is on network X" without asking the board later. The
+      // backend stores them in device_meta (admin-only, like MAC + secret).
       const res = await authedFetch('/api/register-device', {
         method: 'POST',
-        body: JSON.stringify({ deviceId: id, mac: mac.replace(/[^0-9a-fA-F]/g, '') }),
+        body: JSON.stringify({
+          deviceId: id,
+          mac: mac.replace(/[^0-9a-fA-F]/g, ''),
+          netMode: mode,
+          wifiSsid: wantWifi ? effectiveWifiSsid : '',
+          wifiPass: wantWifi ? effectiveWifiPass : '',
+          halowSsid: wantHalow ? halowSsid : '',
+          halowPsk: wantHalow ? halowPsk : '',
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'register-device failed');
@@ -331,7 +353,7 @@ export default function ProvisionPage() {
       <h3 id="step2" style={{ marginBottom: 8 }}>Step 2 — Enter the camera’s network details (after successful Step 1 install)</h3>
       <label>Camera name (device ID)</label>
       <input style={field} value={deviceId} onChange={(e) => setDeviceId(e.target.value)} placeholder="pond_cam_02" />
-      {hint('3–40 characters: a–z, 0–9, _ or -', idErr)}
+      {hint('3–40 characters: A–Z, a–z, 0–9, _ or -', idErr)}
 
       <label>Which radio(s)?</label>
       <select style={field} value={mode} onChange={(e) => setMode(e.target.value as Mode)}>
@@ -382,7 +404,7 @@ export default function ProvisionPage() {
 
           {wifiSource === 'saved' ? (
             <div style={{ padding: 10, background: '#f5f7fb', border: '1px solid #dbe1ec', borderRadius: 6, marginBottom: 12, fontSize: 13, color: '#555' }}>
-              Will use the saved password for <b>{savedNetworks.find((n) => n.slug === savedSlug)?.ssid || savedSlug}</b>. The student never sees it.
+              Will use the saved password for <b>{savedNetworks.find((n) => n.slug === savedSlug)?.ssid || savedSlug}</b>.
             </div>
           ) : (
             <>

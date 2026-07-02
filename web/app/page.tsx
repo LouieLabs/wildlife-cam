@@ -8,8 +8,8 @@ export default function Home() {
       <p>Backyard camera network control panel.</p>
       <ul style={{ lineHeight: 2 }}>
         <li><Link href="/dashboard">Live dashboard</Link></li>
-        <li><Link href="/register">Register a new camera</Link></li>
-        <li><Link href="/provision">Set up a camera (USB)</Link></li>
+        <li><Link href="/provision">Set up a camera</Link></li>
+        <li><Link href="/networks">Saved Wi-Fi networks</Link></li>
       </ul>
       <AuthControl />
     </main>

@@ -30,7 +30,13 @@ String getCommand();
 
 // Ask the web app for a short-lived signed upload link. On success returns the
 // upload URL and fills objectNameOut with the storage path; "" on failure.
-String requestUploadUrl(String &objectNameOut);
+//
+// wakeReason ("PIR"/"BUTTON"/"TIMER"/"COLDBOOT"/"UNKNOWN") and capturedAt (epoch
+// ms, 0 if NTP wasn't synced when the photo was taken) get used server-side to
+// build a descriptive object name like `LL-cam1_260630-021026_BUTTON.jpg`.
+// Pass the ORIGINAL capture's reason + time even when uploading a pending photo
+// from a later wake; flashParsePath() recovers them from the LittleFS filename.
+String requestUploadUrl(String &objectNameOut, const char *wakeReason, long long capturedAtMs);
 
 // PUT the JPEG bytes to the signed upload URL. Returns true on HTTP 200.
 bool uploadJpeg(const String &signedUrl, const uint8_t *data, size_t len);

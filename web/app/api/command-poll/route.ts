@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
   let deviceId = '';
   try {
     const body = await req.json();
-    deviceId = String(body.deviceId || '').toLowerCase().trim();
+    deviceId = String(body.deviceId || '').trim();
   } catch {
     // fall through; requireDeviceSecret will reject the empty/invalid id
   }

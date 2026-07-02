@@ -183,7 +183,7 @@ static String jsonStringField(const String &json, const char *key) {
   return json.substring(i, j);
 }
 
-String requestUploadUrl(String &objectNameOut) {
+String requestUploadUrl(String &objectNameOut, const char *wakeReason, long long capturedAtMs) {
   String url = String(BACKEND_BASE_URL) + "/api/get-upload-url";
   // Pick the transport from the URL scheme: the deployed Cloud Run backend is
   // https://, a local `npm run dev` server is http://. (WiFiClientSecure is a
@@ -197,7 +197,12 @@ String requestUploadUrl(String &objectNameOut) {
   http.addHeader("Content-Type", "application/json");
   http.addHeader("x-device-secret", g_cfg.deviceSecret);
 
-  String reqBody = String("{\"deviceId\":\"") + g_cfg.deviceId + "\"}";
+  char tsBuf[24];
+  snprintf(tsBuf, sizeof(tsBuf), "%lld", capturedAtMs);
+  String safeReason = (wakeReason && *wakeReason) ? String(wakeReason) : String("UNKNOWN");
+  String reqBody = String("{\"deviceId\":\"") + g_cfg.deviceId
+                 + "\",\"wakeReason\":\"" + safeReason
+                 + "\",\"capturedAt\":" + tsBuf + "}";
   int code = http.POST(reqBody);
   String resp = (code == 200) ? http.getString() : "";
   http.end();

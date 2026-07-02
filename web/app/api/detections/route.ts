@@ -98,8 +98,8 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const deviceId = String(body.deviceId || '').toLowerCase().trim();
-    if (!/^[a-z0-9_-]{3,40}$/.test(deviceId)) {
+    const deviceId = String(body.deviceId || '').trim();
+    if (!/^[A-Za-z0-9_-]{3,40}$/.test(deviceId)) {
       return NextResponse.json({ error: 'Invalid device ID' }, { status: 400 });
     }
 

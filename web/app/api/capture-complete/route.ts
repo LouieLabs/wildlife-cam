@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const deviceId = String(body.deviceId || '').toLowerCase().trim();
+    const deviceId = String(body.deviceId || '').trim();
     // Accept either objectPath or objectName (what get-upload-url returns).
     const objectPath = String(body.objectPath || body.objectName || '').trim();
 
