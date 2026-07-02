@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { onAuthStateChanged, type User } from 'firebase/auth';
 import { clientAuth } from '@/lib/firebaseClient';
 
@@ -19,13 +19,59 @@ type Device = {
   secret: string | null;
 };
 
+type DrawnBox = { class: 'human' | 'animal'; bbox: [number, number, number, number] };
+
 type Detection = {
   id: string;
   deviceId: string;
   imageUrl: string | null;
   capturedAt: number;
   detections: { label?: string; confidence?: number; box?: number[] }[];
+  boxes?: DrawnBox[];  // human-annotated boxes from external cameras (trail cams etc.)
 };
+
+// Canvas-overlaid image for detections that carry pre-drawn boxes (external
+// data sources). Colors match the source annotations sampled from the batch.
+function CaptureImage({ det, showBoxes }: { det: Detection; showBoxes: boolean }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const imgRef = useRef<HTMLImageElement>(null);
+  const boxes = det.boxes ?? [];
+  const draw = () => {
+    const img = imgRef.current;
+    const canvas = canvasRef.current;
+    if (!img || !canvas) return;
+    canvas.width = img.clientWidth;
+    canvas.height = img.clientHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (!showBoxes || !boxes.length) return;
+    const sx = img.clientWidth / img.naturalWidth;
+    const sy = img.clientHeight / img.naturalHeight;
+    ctx.lineWidth = 2;
+    for (const b of boxes) {
+      ctx.strokeStyle = b.class === 'human' ? 'rgb(208,22,24)' : 'rgb(240,240,70)';
+      const [x, y, w, h] = b.bbox;
+      ctx.strokeRect(x * sx, y * sy, w * sx, h * sy);
+    }
+  };
+  useEffect(draw, [showBoxes, boxes]);
+  return (
+    <div style={{ position: 'relative', maxWidth: 320, marginTop: 8, lineHeight: 0 }}>
+      <img
+        ref={imgRef}
+        src={det.imageUrl!}
+        alt=""
+        style={{ width: '100%', display: 'block' }}
+        onLoad={draw}
+      />
+      <canvas
+        ref={canvasRef}
+        style={{ position: 'absolute', top: 0, left: 0, pointerEvents: 'none' }}
+      />
+    </div>
+  );
+}
 
 export default function DashboardPage() {
   const [user, setUser] = useState<User | null>(null);
@@ -34,6 +80,16 @@ export default function DashboardPage() {
   const [error, setError] = useState('');
   const [revealedSecrets, setRevealedSecrets] = useState<Record<string, boolean>>({});
   const [revealedPasswords, setRevealedPasswords] = useState<Record<string, boolean>>({});
+  // Persist the "show boxes" preference; annotated captures (external cams)
+  // render red/yellow rectangles over the raw image when this is on.
+  const [showBoxes, setShowBoxes] = useState(true);
+  useEffect(() => {
+    const saved = typeof window !== 'undefined' ? window.localStorage.getItem('wps.showBoxes') : null;
+    if (saved !== null) setShowBoxes(saved === 'true');
+  }, []);
+  useEffect(() => {
+    if (typeof window !== 'undefined') window.localStorage.setItem('wps.showBoxes', String(showBoxes));
+  }, [showBoxes]);
 
   useEffect(() => onAuthStateChanged(clientAuth, setUser), []);
 
@@ -223,29 +279,46 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <h2 style={{ fontSize: 18, marginTop: 24 }}>Recent detections</h2>
+      <h2 style={{ fontSize: 18, marginTop: 24 }}>
+        Recent detections{' '}
+        <button
+          onClick={() => setShowBoxes((v) => !v)}
+          style={{ marginLeft: 8, fontSize: 12, padding: '2px 8px' }}
+        >
+          {showBoxes ? 'hide boxes' : 'show boxes'}
+        </button>
+      </h2>
       {detections.length === 0 ? (
         <p style={{ opacity: 0.7 }}>No detections yet.</p>
       ) : (
         <div style={{ display: 'grid', gap: 12 }}>
-          {detections.map((det) => (
-            <div key={det.id} style={{ padding: 12, background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 8 }}>
-              <b>{det.deviceId}</b>{' '}
-              <span style={{ fontSize: 12, opacity: 0.7 }}>
-                {new Date(det.capturedAt).toLocaleString()}
-              </span>
-              <div>
-                {det.detections.length === 0
-                  ? 'no animals'
-                  : det.detections.map((x, i) => `${x.label ?? '?'} (${Math.round((x.confidence ?? 0) * 100)}%)`).join(', ')}
+          {detections.map((det) => {
+            const drawn = det.boxes ?? [];
+            const summary =
+              drawn.length > 0
+                ? `${drawn.filter((b) => b.class === 'animal').length} animal` +
+                  ` · ${drawn.filter((b) => b.class === 'human').length} human`
+                : det.detections.length === 0
+                ? 'no animals'
+                : det.detections
+                    .map((x) => `${x.label ?? '?'} (${Math.round((x.confidence ?? 0) * 100)}%)`)
+                    .join(', ');
+            return (
+              <div key={det.id} style={{ padding: 12, background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 8 }}>
+                <b>{det.deviceId}</b>{' '}
+                <span style={{ fontSize: 12, opacity: 0.7 }}>
+                  {new Date(det.capturedAt).toLocaleString()}
+                </span>
+                <div>{summary}</div>
+                {det.imageUrl && <CaptureImage det={det} showBoxes={showBoxes} />}
+                {det.imageUrl && (
+                  <a href={det.imageUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>
+                    view full image
+                  </a>
+                )}
               </div>
-              {det.imageUrl && (
-                <a href={det.imageUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>
-                  view image
-                </a>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </main>

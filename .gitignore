@@ -21,6 +21,15 @@ build/
 # Local scratch / temp
 tmp/
 
+# Python virtualenvs + build detritus (scripts/ingest-photos.py etc.)
+**/.venv/
+**/__pycache__/
+**/*.pyc
+
+# Ingest-script local state + verification artifacts (never committed)
+scripts/.ingest-state.json
+scripts/out/
+
 # PlatformIO local build caches and compiled binaries
 .pio/
 .pioenvs/

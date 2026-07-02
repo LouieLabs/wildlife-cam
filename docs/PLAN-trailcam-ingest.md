@@ -3,6 +3,109 @@
 **Status:** draft, awaiting implementation (2026-07-01).
 **Origin:** this plan was designed in a session that started on PIR firmware and drifted into how to seed the wildlife-cam dataset with real backyard imagery captured from a borrowed trail cam.
 
+## Execution updates — 2026-07-01
+
+Append-only log of decisions and deltas taken while executing this plan. The
+locked plan text below is left intact; where it says `seed-trailcam`, read
+`wps-1`.
+
+**Device ID: `seed-trailcam` → `wps-1`.** User prefers a clean per-device name
+(first Wildlife Photo Sensor). All script output, GCS object paths, filename
+convention, and Firestore records use `wps-1`.
+
+**Pairing simplified: filename-primary, pHash-fallback.** Inspection of the two
+directories on the user's Mac:
+
+| | Count |
+|---|---:|
+| Raw JPEGs (`wps_raw/`) | 236 |
+| Boxed JPEGs (`wps_boxes/`) | 246 |
+| Same UUID filename in both | 236 (100% of raw) |
+| Boxed orphans (no raw twin) | 10 |
+
+Filenames are UUIDs and align exactly, so §2's pHash-across-full-set is
+unnecessary complexity. Replaced with:
+
+1. Pair by identical filename.
+2. Sanity check: compute pHash on 5 random matched pairs; fail if Hamming
+   distance > 8 on any.
+3. On sanity-check failure, fall back to plan §2's original pHash-across-
+   full-set (kept in the codebase as the fallback path).
+4. Report the 10 boxed orphans at the end.
+
+Rationale: 5 pHash computations preserve the "same-named files really are the
+same image" correctness guarantee at ~1% of the compute of pHashing 236+.
+
+**Camera batch metadata locked** for this run (goes into `source` on every
+capture record):
+
+| Field | Value |
+|---|---|
+| deviceId (camera name) | `WPS-1` |
+| manufacturer | `UOVision/WPS` |
+| model | `Home Guard W5 L5P-W` |
+| nightMode | `infrared` |
+| deployment | `multiple spots in LL backyard` |
+| raw dir on laptop | `/Users/alan/Downloads/wps_raw` |
+| boxed dir on laptop | `/Users/alan/Downloads/wps_boxes` |
+
+Identity model going forward: every capture carries the tuple
+(`manufacturer`, `model`, `deviceId`).  `WPS-2`, `WPS-3`, etc. are future
+UOVision cameras on the same model line; a different manufacturer or model
+gets a different `deviceId` prefix.
+
+**Burned metadata strip confirmed.** Earlier automated tail-mean detection
+missed the strip because the bar has bright white text raising the mean.
+Row-median or row-variance detection catches it cleanly.  Every capture has a
+strip like:
+
+```
+UoVision  2026-05-24 06:55:49  [moon-icon]8  26°C 79°F  [batt-icon]  PIR
+```
+
+Parseable fields → `overlayMetadata`:
+
+| Strip field | Type | Notes |
+|---|---|---|
+| date+time | ISO-8601 | camera-local TZ (see below); parse via pytesseract |
+| moonPhaseIndex | int 0–15 | number after moon icon |
+| tempC | float | canonical; °F derived on display |
+| triggerReason | enum | `PIR` observed; also possibly `TIMER`, `USER` |
+| batteryLevel | 0–3 or icon-name | icon-based; may need small icon-template match, not OCR |
+
+Temperature: **store `tempC` only**; dashboard renders both °C and °F from
+that one value.
+
+**Camera clock is set to China Standard Time (UTC+8, `Asia/Shanghai`)** —
+factory default for this Chinese OEM (UOVision).  Verified by OCR + IR/color
+lighting check across all 236 raws: **194 of 200 parseable strips (97%) are
+IR/color-consistent with `PT = strip − 15h` (PDT).**  Remaining 6 are
+twilight edges (2), borderline (1), or April IR shots under shaded canopy
+that plausibly triggered night mode at PT-daytime (3) — none indicate a
+clock reset.  Batch spans 2026-03-29 → 2026-07-01 with monotonic strip-time
+progression.
+
+User's `+4h` example reconciled: cellular trail cams batch-and-delay their
+uploads.  Image captured at strip 04:07 UTC+8 = PT 13:07 previous day = ~4h
+before user received the SMS at 5:05 PM PT.  The strip's date rollover
+(next-day 04:07) made it *look* +4h from UTC.
+
+Filename and stored `capturedAt` are in **Pacific time** (user's local); we
+also store `capturedAtUtc` (canonical, DST-safe) so downstream analytics can
+align against fleet cameras:
+
+- Parse naive datetime from OCR'd strip.
+- Attach camera TZ (default `Asia/Shanghai`, override via `--camera-timezone`).
+- Convert to UTC → store as `capturedAtUtc`.
+- Convert to `America/Los_Angeles` → store as `capturedAt`, and use in the
+  filename `WPS-1_YYMMDD-HHMMSS_<CLASS>.jpg`.
+
+**OCR fallback plan.** 36/236 (15%) strips didn't parse with pytesseract in
+first pass (two-line overlays, low IR contrast).  Not blocking — those
+images ingest with hash + boxes + filename UUID, without `capturedAt` /
+`overlayMetadata`.  If we later want to close the gap, plan §1 fallback to
+Google Vision API applies.
+
 ## Project context
 
 LouieLabs Wildlife-cam. Wildlife camera fleet on Heltec HT-HC33 (ESP32-S3),

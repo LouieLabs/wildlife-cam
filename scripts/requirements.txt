@@ -1,0 +1,8 @@
+# Dependencies for scripts/ingest-photos.py (trail-cam ingest for wps-1).
+# Install into scripts/.venv:  scripts/.venv/bin/pip install -r scripts/requirements.txt
+opencv-python>=4.9,<5
+imagehash>=4.3,<5
+Pillow>=10,<12
+pytesseract>=0.3.10,<0.4
+google-cloud-storage>=2.16,<4
+firebase-admin>=6.5,<8
