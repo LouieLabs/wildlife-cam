@@ -11,6 +11,48 @@ export const runtime = 'nodejs';
 // directly. The database's `command` path is no longer world-readable, so this
 // route (which reads it with admin credentials, bypassing the rules) is the only
 // way in. Authenticated via the per-device secret in the x-device-secret header.
+//
+// Response shape:
+//   { deviceId, command }                                    // most wakes
+//   { deviceId, command: "update_firmware", ota: {...} }     // when otaTarget is set
+//
+// The `ota` object carries the exact fields the Slice A firmware parses out of
+// this response (see cloud_telemetry_node/cloud_backend.cpp getCommand). If the
+// command is "update_firmware" but the otaTarget is missing or malformed, we
+// still return the command so the field device logs the missing payload -- the
+// firmware then reports it as a malformed command and skips the update.
+
+// Shape written by /api/firmware/publish. Kept as a type here so the ota
+// object we hand to the firmware never carries extra RTDB junk (or drift from
+// the publish route's expectations).
+type OtaTargetV1 = {
+  url: string;
+  sha256: string;
+  sizeBytes: number;
+  version: string;
+  boardType: string;
+  expectedSeconds: number;
+  minBytesPerSec: number;
+  maxSeconds: number;
+};
+
+// Extract exactly the OtaTargetV1 fields. Any missing/wrong-type field means
+// we treat the target as absent -- safer than sending the firmware a half
+// payload it might misinterpret.
+function sanitizeOtaTarget(raw: unknown): OtaTargetV1 | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  const url       = typeof r.url === 'string'       ? r.url       : '';
+  const sha256    = typeof r.sha256 === 'string'    ? r.sha256    : '';
+  const version   = typeof r.version === 'string'   ? r.version   : '';
+  const boardType = typeof r.boardType === 'string' ? r.boardType : '';
+  const sizeBytes       = typeof r.sizeBytes === 'number'       ? r.sizeBytes       : 0;
+  const expectedSeconds = typeof r.expectedSeconds === 'number' ? r.expectedSeconds : 0;
+  const minBytesPerSec  = typeof r.minBytesPerSec === 'number'  ? r.minBytesPerSec  : 0;
+  const maxSeconds      = typeof r.maxSeconds === 'number'      ? r.maxSeconds      : 0;
+  if (!url || !sha256 || !boardType || sizeBytes <= 0) return null;
+  return { url, sha256, sizeBytes, version, boardType, expectedSeconds, minBytesPerSec, maxSeconds };
+}
 
 export async function POST(req: NextRequest) {
   const rl = await checkRateLimit({
@@ -40,5 +82,16 @@ export async function POST(req: NextRequest) {
   }
 
   const command = (await rtdbGet<string>(`devices/${deviceId}/command`)) ?? 'idle';
+
+  if (command === 'update_firmware') {
+    const target = sanitizeOtaTarget(await rtdbGet<unknown>(`devices/${deviceId}/otaTarget`));
+    if (target) {
+      return NextResponse.json({ deviceId, command, ota: target });
+    }
+    // Command says update but the payload is gone/malformed. Return the verb
+    // anyway -- the firmware treats "update_firmware without ota" as a skip,
+    // and the dashboard sees the missing payload from state.lastOta later.
+  }
+
   return NextResponse.json({ deviceId, command });
 }
