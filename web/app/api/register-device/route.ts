@@ -29,14 +29,28 @@ export async function POST(req: NextRequest) {
     const deviceId = String(body.deviceId || '').trim();
     const mac = String(body.mac || '').toUpperCase().replace(/[^0-9A-F]/g, '');
 
+    // cameraType controls whether this device gets a secret + command channel.
+    //  - 'networked' (default): a fleet camera that polls for commands and
+    //    authenticates uploads with its own secret. MAC required.
+    //  - 'external': a non-networked data source (trail cam, imported dataset).
+    //    No secret, no command channel; MAC optional. Ingest happens
+    //    server-side via developer credentials.
+    const cameraType = String(body.cameraType || 'networked');
+    if (cameraType !== 'networked' && cameraType !== 'external') {
+      return NextResponse.json({ error: "cameraType must be 'networked' or 'external'" }, { status: 400 });
+    }
+
     if (!/^[A-Za-z0-9_-]{3,40}$/.test(deviceId)) {
       return NextResponse.json(
         { error: 'Device ID must be 3-40 chars: letters (A-Z, a-z), numbers, _ or -' },
         { status: 400 }
       );
     }
-    if (mac.length !== 12) {
+    if (cameraType === 'networked' && mac.length !== 12) {
       return NextResponse.json({ error: 'MAC must be 12 hex characters' }, { status: 400 });
+    }
+    if (cameraType === 'external' && mac.length > 0 && mac.length !== 12) {
+      return NextResponse.json({ error: 'MAC (optional for external cams) must be 12 hex characters or blank' }, { status: 400 });
     }
 
     // Optional network creds: the provision page sends what it just wrote to
@@ -50,13 +64,29 @@ export async function POST(req: NextRequest) {
     const halowSsid = String(body.halowSsid || '');
     const halowPsk = String(body.halowPsk || '');
 
-    const secret = generateDeviceSecret();
+    // Optional external-camera metadata (surfaces on the dashboard so students
+    // can tell which "camera" a capture came from — WPS trail cam vs. Heltec
+    // fleet cam etc.). Ignored/stored-as-null for networked cameras.
+    const manufacturer = String(body.manufacturer || '').trim();
+    const model = String(body.model || '').trim();
+    const nightMode = String(body.nightMode || '').trim();       // infrared|white_flash|""
+    const deployment = String(body.deployment || '').trim();
 
-    // Registry + metadata live in the Realtime Database (admin-only paths).
-    // Secret is stored in CLEAR (per project decision) so it can be recovered.
-    await rtdbSet(`pre_shared_keys/${deviceId}`, secret);
+    const secret = cameraType === 'networked' ? generateDeviceSecret() : null;
+    const macToStore = mac.length === 12 ? mac : null;
+
+    if (secret) {
+      // Registry + metadata live in the Realtime Database (admin-only paths).
+      // Secret is stored in CLEAR (per project decision) so it can be recovered.
+      await rtdbSet(`pre_shared_keys/${deviceId}`, secret);
+    }
     await rtdbSet(`device_meta/${deviceId}`, {
-      mac,
+      mac: macToStore,
+      cameraType,
+      manufacturer: manufacturer || null,
+      model: model || null,
+      nightMode: nightMode || null,
+      deployment: deployment || null,
       registeredBy: user.email,
       registeredAt: Date.now(),
       netMode: netMode || null,
@@ -65,17 +95,20 @@ export async function POST(req: NextRequest) {
       halowSsid: halowSsid || null,
       halowPsk: halowPsk || null,
     });
-    // Seed an idle command so the device has something to poll on first boot.
-    await rtdbSet(`devices/${deviceId}/command`, 'idle');
+    // Seed an idle command only for networked cams — external sources don't poll.
+    if (cameraType === 'networked') {
+      await rtdbSet(`devices/${deviceId}/command`, 'idle');
+    }
 
-    // The per-device `secret` is what the board uses to authenticate to BOTH
-    // the database (status writes) and the backend HTTP routes (uploads,
-    // command poll, capture-complete). There is no longer a fleet-wide shared
-    // key in the board image.
+    // The per-device `secret` is what a networked board uses to authenticate
+    // to BOTH the database (status writes) and the backend HTTP routes
+    // (uploads, command poll, capture-complete). External cams have no
+    // secret; ingest happens via developer credentials from a script.
     return NextResponse.json({
       deviceId,
-      mac,
+      mac: macToStore,
       secret,
+      cameraType,
     });
   } catch (err) {
     if (err instanceof HttpError) {

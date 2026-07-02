@@ -64,12 +64,83 @@ describe('POST /api/register-device', () => {
     const res = await POST(makeRequest({ method: 'POST', body: { deviceId: 'cam1', mac: 'aa:bb:cc:dd:ee:ff' } }));
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body).toMatchObject({ deviceId: 'cam1', mac: 'AABBCCDDEEFF', secret: 'ABC-DEF-1234' });
+    expect(body).toMatchObject({ deviceId: 'cam1', mac: 'AABBCCDDEEFF', secret: 'ABC-DEF-1234', cameraType: 'networked' });
     // GUARD: a regression that resurrects the fleet-wide camera key would re-add this field.
     expect(body).not.toHaveProperty('cameraKey');
     // Wrote to all three expected paths.
     expect(m.rtdbSet).toHaveBeenCalledWith('pre_shared_keys/cam1', 'ABC-DEF-1234');
-    expect(m.rtdbSet).toHaveBeenCalledWith('device_meta/cam1', expect.objectContaining({ mac: 'AABBCCDDEEFF', registeredBy: FAKE_USER.email }));
+    expect(m.rtdbSet).toHaveBeenCalledWith(
+      'device_meta/cam1',
+      expect.objectContaining({ mac: 'AABBCCDDEEFF', cameraType: 'networked', registeredBy: FAKE_USER.email })
+    );
     expect(m.rtdbSet).toHaveBeenCalledWith('devices/cam1/command', 'idle');
+  });
+
+  it('rejects an invalid cameraType (400)', async () => {
+    const res = await POST(makeRequest({ method: 'POST', body: { deviceId: 'cam1', mac: 'AABBCCDDEEFF', cameraType: 'garbage' } }));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/cameratype/i);
+    expect(m.rtdbSet).not.toHaveBeenCalled();
+  });
+
+  it('external camera: no MAC required, no secret minted, no pre_shared_keys or command written', async () => {
+    const res = await POST(makeRequest({
+      method: 'POST',
+      body: {
+        deviceId: 'WPS-1',
+        mac: '',
+        cameraType: 'external',
+        manufacturer: 'UOVision/WPS',
+        model: 'Home Guard W5 L5P-W',
+        nightMode: 'infrared',
+        deployment: 'multiple spots in LL backyard',
+      },
+    }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({ deviceId: 'WPS-1', mac: null, secret: null, cameraType: 'external' });
+    // No secret minted for external cams.
+    expect(m.generateDeviceSecret).not.toHaveBeenCalled();
+    // No pre_shared_keys entry.
+    expect(m.rtdbSet).not.toHaveBeenCalledWith('pre_shared_keys/WPS-1', expect.anything());
+    // No command seed (external cams don't poll).
+    expect(m.rtdbSet).not.toHaveBeenCalledWith('devices/WPS-1/command', expect.anything());
+    // device_meta captures the trail-cam identity + type.
+    expect(m.rtdbSet).toHaveBeenCalledWith(
+      'device_meta/WPS-1',
+      expect.objectContaining({
+        mac: null,
+        cameraType: 'external',
+        manufacturer: 'UOVision/WPS',
+        model: 'Home Guard W5 L5P-W',
+        nightMode: 'infrared',
+        deployment: 'multiple spots in LL backyard',
+        registeredBy: FAKE_USER.email,
+      })
+    );
+  });
+
+  it('external camera: rejects a partial MAC (400)', async () => {
+    const res = await POST(makeRequest({
+      method: 'POST',
+      body: { deviceId: 'WPS-1', mac: 'AABB', cameraType: 'external' },
+    }));
+    expect(res.status).toBe(400);
+    expect(m.rtdbSet).not.toHaveBeenCalled();
+  });
+
+  it('external camera: accepts a valid MAC when provided (12 hex)', async () => {
+    const res = await POST(makeRequest({
+      method: 'POST',
+      body: { deviceId: 'WPS-1', mac: 'AABBCCDDEEFF', cameraType: 'external' },
+    }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({ deviceId: 'WPS-1', mac: 'AABBCCDDEEFF', secret: null, cameraType: 'external' });
+    expect(m.rtdbSet).toHaveBeenCalledWith(
+      'device_meta/WPS-1',
+      expect.objectContaining({ mac: 'AABBCCDDEEFF', cameraType: 'external' })
+    );
   });
 });
