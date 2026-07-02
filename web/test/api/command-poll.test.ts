@@ -68,4 +68,79 @@ describe('POST /api/command-poll', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ deviceId: 'cam_a', command: 'idle' });
   });
+
+  // ---- OTA payload extension (Slice B) ------------------------------------
+  // When the command is "update_firmware", the response includes the ota
+  // object we wrote at /devices/<id>/otaTarget. Slice A firmware parses this
+  // exact shape.
+
+  const VALID_OTA_TARGET = {
+    url: 'https://ex.com/firmware/builds/heltec-ht-hc33/a1b2c3d/firmware.bin',
+    sha256: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+    sizeBytes: 1174480,
+    version: 'a1b2c3d',
+    boardType: 'heltec-ht-hc33',
+    expectedSeconds: 30,
+    minBytesPerSec: 20000,
+    maxSeconds: 90,
+  };
+
+  it('embeds the ota object when the command is "update_firmware"', async () => {
+    m.rtdbGet
+      .mockResolvedValueOnce('update_firmware')   // devices/cam_a/command
+      .mockResolvedValueOnce(VALID_OTA_TARGET);   // devices/cam_a/otaTarget
+    const res = await POST(makeRequest({
+      method: 'POST',
+      headers: { 'x-device-secret': 'RIGHT' },
+      body: { deviceId: 'cam_a' },
+    }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      deviceId: 'cam_a',
+      command: 'update_firmware',
+      ota: VALID_OTA_TARGET,
+    });
+    expect(m.rtdbGet).toHaveBeenCalledWith('devices/cam_a/command');
+    expect(m.rtdbGet).toHaveBeenCalledWith('devices/cam_a/otaTarget');
+  });
+
+  it('does NOT touch otaTarget when the command is "take_picture"', async () => {
+    m.rtdbGet.mockResolvedValueOnce('take_picture');
+    const res = await POST(makeRequest({
+      method: 'POST',
+      headers: { 'x-device-secret': 'RIGHT' },
+      body: { deviceId: 'cam_a' },
+    }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ deviceId: 'cam_a', command: 'take_picture' });
+    expect(m.rtdbGet).toHaveBeenCalledTimes(1);   // no otaTarget read
+  });
+
+  it('drops the ota key when otaTarget is missing (malformed dashboard state)', async () => {
+    m.rtdbGet
+      .mockResolvedValueOnce('update_firmware')
+      .mockResolvedValueOnce(null);
+    const res = await POST(makeRequest({
+      method: 'POST',
+      headers: { 'x-device-secret': 'RIGHT' },
+      body: { deviceId: 'cam_a' },
+    }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ deviceId: 'cam_a', command: 'update_firmware' });
+  });
+
+  it('drops the ota key when otaTarget is missing required fields', async () => {
+    m.rtdbGet
+      .mockResolvedValueOnce('update_firmware')
+      .mockResolvedValueOnce({ url: '', sha256: '', sizeBytes: 0 });   // half payload
+    const res = await POST(makeRequest({
+      method: 'POST',
+      headers: { 'x-device-secret': 'RIGHT' },
+      body: { deviceId: 'cam_a' },
+    }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ota).toBeUndefined();
+    expect(body.command).toBe('update_firmware');
+  });
 });

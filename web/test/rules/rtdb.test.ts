@@ -124,3 +124,64 @@ describe('RTDB rules: /devices/{id}/command -- server-only', () => {
     await assertFails(get(ref(db, 'devices/cam_a/command')));
   });
 });
+
+describe('RTDB rules: /devices/{id}/otaTarget -- server-only (Slice B)', () => {
+  // Guaranteed-brick guard: if a client could forge otaTarget, they'd
+  // instruct a real camera to download whatever URL they specified. The path
+  // MUST be admin-server-only.
+
+  it('denies client writes (only /api/firmware/publish should ever write this)', async () => {
+    // Even a legitimate-looking payload should be refused -- the /api that
+    // owns this write is the ONLY one that computes SHA256 from the actual
+    // .bin, so any client-written otaTarget is by definition untrusted.
+    const db = env.unauthenticatedContext().database();
+    await assertFails(set(ref(db, 'devices/cam_a/otaTarget'), {
+      url: 'https://attacker.example/backdoor.bin',
+      sha256: 'a'.repeat(64),
+      sizeBytes: 1234,
+      version: 'a1b2c3d',
+      boardType: 'heltec-ht-hc33',
+      expectedSeconds: 30,
+      minBytesPerSec: 20000,
+      maxSeconds: 90,
+    }));
+  });
+
+  it('denies client reads (cameras receive otaTarget via /api/command-poll, not a direct RTDB read)', async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await set(ref(ctx.database(), 'devices/cam_a/otaTarget'), {
+        url: 'https://ex.com/x.bin', sha256: 'abc', sizeBytes: 1,
+      });
+    });
+    const db = env.unauthenticatedContext().database();
+    await assertFails(get(ref(db, 'devices/cam_a/otaTarget')));
+  });
+});
+
+describe('RTDB rules: state extension for OTA fields (Slice B regression)', () => {
+  // Sanity-check that adding fwVersion / boardType / lastOta to the state
+  // payload still passes the same secret-gated .write rule; no rule change
+  // needed here, but a rule tweak upstream must not break this shape.
+
+  it('accepts a state write that ALSO carries fwVersion, boardType, and lastOta', async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await set(ref(ctx.database(), 'pre_shared_keys/cam_a'), 'RIGHT-SECRET');
+    });
+    const db = env.unauthenticatedContext().database();
+    await assertSucceeds(set(ref(db, 'devices/cam_a/state'), {
+      status: 'online',
+      battery: 87,
+      secret: 'RIGHT-SECRET',
+      firmwareVersion: 'a1b2c3d (Jul  1 2026 12:34:56)',
+      boardType: 'heltec-ht-hc33',
+      updatedAt: Date.now(),
+      lastOta: {
+        result: 'Ok',
+        from: 'oldsha',
+        to: 'a1b2c3d',
+        durationS: 12,
+        ts: Date.now(),
+      },
+    }));
+  });
+});
