@@ -9,6 +9,12 @@
 // the dashboard (Register a camera).
 #define DEVICE_ID        "pond_cam_01"
 
+// What kind of board this firmware image targets. The dashboard filters OTA
+// builds by this so a Heltec .bin can never be pushed to a Lilygo (or vice
+// versa -- different CPU architecture, guaranteed brick). One firmware image =
+// one BOARD_TYPE. Match the value in web/public/firmware/builds/<boardType>/.
+#define BOARD_TYPE       "heltec-ht-hc33"
+
 // Realtime Database host -- no "https://", no trailing slash.
 #define RTDB_HOST        "louielabs-animal-cams-default-rtdb.firebaseio.com"
 

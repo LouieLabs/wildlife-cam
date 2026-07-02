@@ -29,6 +29,7 @@
 #include "device_config.h"
 #include "provisioning.h"
 #include "version.h"
+#include "ota_update.h"
 
 // Survives deep sleep (kept in RTC memory) so we can count wake-ups in the log.
 RTC_DATA_ATTR uint32_t bootCount = 0;
@@ -227,8 +228,14 @@ void setup() {
   // garbage timestamp. Use 0 when the clock isn't real yet.
   long long updatedAt = epoch ? (long long)epoch * 1000LL : 0LL;
   int battery = readBatteryPercent();
-  bool ok = reportStatus("online", battery, updatedAt);
+  StatusReport rpt = { "online", battery, updatedAt, nullptr /* no lastOta this wake */ };
+  bool ok = reportStatus(rpt);
   Serial.printf("[report] %s  (battery %d%%)\n", ok ? "SENT ✓" : "FAILED", battery);
+
+  // 2.1) If this boot came from a fresh OTA flash (partition state ==
+  //      PENDING_VERIFY), clear the rollback trigger ONLY after we've proved
+  //      the cloud is reachable. Silent no-op on a normal boot.
+  otaMarkValidIfPending(ok);
 
 #if DO_CAPTURE_CYCLE
   // 2.5) Capture on MOTION (and on a cold boot, for a first test shot). On a
@@ -243,10 +250,40 @@ void setup() {
 #endif
 
   // 3) Check for a pending command from the dashboard.
-  String cmd = getCommand();
-  Serial.printf("[command] pending = %s\n", cmd.c_str());
-  if (cmd == "take_picture") {
+  Command cmd = getCommand();
+  Serial.printf("[command] pending = %s\n", cmd.verb.c_str());
+  if (cmd.verb == "take_picture") {
     doTakePicture(wakeReason);
+  } else if (cmd.verb == "update_firmware" && cmd.hasOta) {
+    // OTA runs AFTER the photo queue drained (step 2.5 above) so pending
+    // photos are never lost to a firmware update. Camera has been deinit'd
+    // already but we call it again defensively -- safe if not init'd.
+    cameraDeinit();
+
+    // Map our esp_sleep_*-derived flags into the ota_update WakeReason enum
+    // so ota_update.cpp doesn't have to know about ESP_SLEEP_WAKEUP_* codes.
+    WakeReason wr = motionWake ? WakeReason::Pir
+                    : buttonWake ? WakeReason::Button
+                    : timerWake  ? WakeReason::Timer
+                                 : WakeReason::Cold;
+
+    uint32_t otaStartMs = millis();
+    OtaResult gate = otaShouldAttempt(cmd.ota, wr, battery);
+    OtaResult result = (gate == OtaResult::Ok) ? otaDownloadAndFlash(cmd.ota) : gate;
+    // On Ok, otaDownloadAndFlash rebooted -- we never get here. Any other
+    // result means we did NOT flash; report the outcome to the dashboard so
+    // the operator sees why. state.lastOta lets them retry / pick a different
+    // build without a shot in the dark.
+    LastOtaResult last = {
+      result,
+      String(FW_VERSION_STR),
+      cmd.ota.version,
+      (millis() - otaStartMs) / 1000,
+      updatedAt
+    };
+    StatusReport rpt2 = { "online", readBatteryPercent(), updatedAt, &last };
+    reportStatus(rpt2);
+    Serial.printf("[ota] result: %s\n", otaResultString(result));
   }
 
   // 4) Back to sleep.
