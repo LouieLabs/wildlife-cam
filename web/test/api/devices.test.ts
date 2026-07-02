@@ -49,7 +49,13 @@ describe('GET /api/devices', () => {
       if (path === 'devices') {
         return {
           cam_a: {
-            state: { status: 'online', battery: 87, updatedAt: 1700000000000, firmwareVersion: 'abc1234 (Jun 30)', secret: 'IGNORED-FROM-STATE' },
+            state: {
+              status: 'online', battery: 87, updatedAt: 1700000000000,
+              firmwareVersion: 'abc1234 (Jun 30)',
+              boardType: 'heltec-ht-hc33',
+              lastOta: { result: 'Ok', from: 'oldsha', to: 'abc1234', durationS: 12, ts: 1700000000000 },
+              secret: 'IGNORED-FROM-STATE',
+            },
             command: 'take_picture',
           },
           cam_b: {},
@@ -86,6 +92,8 @@ describe('GET /api/devices', () => {
         battery: 87,
         lastUpdate: 1700000000000,
         firmwareVersion: 'abc1234 (Jun 30)',
+        boardType: 'heltec-ht-hc33',
+        lastOta: { result: 'Ok', from: 'oldsha', to: 'abc1234', durationS: 12, ts: 1700000000000 },
         command: 'take_picture',
         mac: 'AABBCCDDEEFF',
         netMode: 'wifi',
@@ -101,6 +109,8 @@ describe('GET /api/devices', () => {
         battery: null,
         lastUpdate: null,
         firmwareVersion: null,
+        boardType: null,
+        lastOta: null,
         command: 'idle',
         mac: null,
         netMode: null,
@@ -133,6 +143,11 @@ describe('GET /api/devices', () => {
       status: 'unknown',
       mac: '112233445566',
       secret: 'NEW-SECRET',
+      // Registered-but-not-woken cameras have no state.boardType yet -- the
+      // firmware-publish UI shows them under "cameras without a boardType"
+      // rather than in the picker itself, so we assert on null explicitly.
+      boardType: null,
+      lastOta: null,
     });
   });
 
