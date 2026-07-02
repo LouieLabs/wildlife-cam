@@ -52,6 +52,15 @@ export async function GET(req: NextRequest) {
         battery: typeof state.battery === 'number' ? state.battery : null,
         lastUpdate: state.updatedAt ?? null,
         firmwareVersion: state.firmwareVersion ?? null,
+        // Board hardware family the camera identified itself as on its last
+        // wake. Populated by Slice A firmware; null on cameras that haven't
+        // reported since that firmware landed. Used by the firmware-publish
+        // dashboard to filter builds to compatible cameras.
+        boardType: state.boardType ?? null,
+        // Result of the most recent OTA attempt (Slice A schema). Null when
+        // no OTA has been attempted yet on this camera. Shape:
+        //   { result, from, to, durationS, ts }
+        lastOta: state.lastOta ?? null,
         command: node.command ?? 'idle',
         mac: m.mac ?? null,
         // Per-camera network creds captured at provision time (null when the
