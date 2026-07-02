@@ -39,6 +39,38 @@ steps:
         npm test
         npm run test:rules
 
+  # 0.5) Firmware build: compile the Heltec HT-HC33 firmware and stage the .bin
+  #      under web/public/firmware/builds/<boardType>/<sha>/firmware.bin so the
+  #      docker build in step 1 bakes it into the Cloud Run image. The .bin is
+  #      what /api/firmware/publish (Slice B) hashes and hands to the fleet via
+  #      the command bus. See firmware/ci/build-and-stage.sh for the recipe;
+  #      docs/FLASH_STORAGE_OTA_PLAN.md (Step 3) documents the design.
+  #
+  #      Cost: adds ~5-10 min per build (Heltec core clone + ~500 MB toolchain
+  #      download from get.py + arduino-cli compile). Optimizations (GCS cache
+  #      of the toolchain, split trigger by path) are TODOs -- keeping v1
+  #      simple + correct beats fast + brittle.
+  #
+  #      Base image debian:bookworm rather than node:20-bookworm because we
+  #      only need python3 + git + arduino-cli; skipping node here keeps the
+  #      apt install short. arduino-cli's install script drops a binary into
+  #      /root/bin, so we prepend PATH.
+  - name: 'debian:bookworm'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        set -eu
+        apt-get update -qq
+        apt-get install -y -qq --no-install-recommends \
+          ca-certificates curl git python3 xz-utils
+        curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh \
+          | BINDIR=/usr/local/bin sh
+        arduino-cli version
+        export OTA_BUILD_SHA="$SHORT_SHA"
+        export OTA_BOARD_TYPE="heltec-ht-hc33"
+        firmware/ci/build-and-stage.sh
+
   # 1) Build the image from the committed Dockerfile (context = web/).
   - name: 'gcr.io/cloud-builders/docker'
     args:
