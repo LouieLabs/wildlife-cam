@@ -92,24 +92,42 @@ long getEpochSeconds(uint32_t timeoutMs) {
 
 // ---------------------------------------------------------------------------
 // Status report: HTTPS PUT to /devices/<id>/state.json
+//
+// Fields on the wire (in order):
+//   status, battery, secret, firmwareVersion, boardType, updatedAt,
+//   lastOta {result, from, to, durationS, ts}   (optional)
 // ---------------------------------------------------------------------------
-bool reportStatus(const char *status, int batteryPct, long long updatedAt) {
+bool reportStatus(const StatusReport &r) {
   String url = String("https://") + RTDB_HOST + "/devices/" + g_cfg.deviceId + "/state.json";
 
-  // updatedAt is 64-bit (epoch ms), so format it with %lld to avoid overflow.
+  // updatedAt is 64-bit (epoch ms), format with %lld to avoid overflow.
   char ts[24];
-  snprintf(ts, sizeof(ts), "%lld", updatedAt);
+  snprintf(ts, sizeof(ts), "%lld", r.updatedAt);
 
-  // Build the JSON body. The secret is what the database rule checks.
-  // firmwareVersion is auto-stamped at build time (see version.h) so the
-  // dashboard can show which build is on each device without any per-release
-  // bookkeeping.
+  // firmwareVersion is auto-stamped at build time (see version.h). boardType is
+  // the compile-time BOARD_TYPE from node_config.h -- one image per board type.
+  // The dashboard uses both to filter available OTA builds.
   String body = "{";
-  body += "\"status\":\"" + String(status) + "\",";
-  body += "\"battery\":" + String(batteryPct) + ",";
+  body += "\"status\":\"" + String(r.status) + "\",";
+  body += "\"battery\":" + String(r.batteryPct) + ",";
   body += "\"secret\":\"" + g_cfg.deviceSecret + "\",";
   body += "\"firmwareVersion\":\"" + String(FW_VERSION_STR) + "\",";
+  body += "\"boardType\":\"" + String(BOARD_TYPE) + "\",";
   body += "\"updatedAt\":" + String(ts);
+
+  if (r.lastOta) {
+    char durBuf[16];
+    snprintf(durBuf, sizeof(durBuf), "%u", (unsigned)r.lastOta->durationS);
+    char lastOtaTs[24];
+    snprintf(lastOtaTs, sizeof(lastOtaTs), "%lld", r.lastOta->ts);
+    body += ",\"lastOta\":{";
+    body += "\"result\":\"" + String(otaResultString(r.lastOta->result)) + "\",";
+    body += "\"from\":\""   + r.lastOta->from + "\",";
+    body += "\"to\":\""     + r.lastOta->to   + "\",";
+    body += "\"durationS\":" + String(durBuf) + ",";
+    body += "\"ts\":" + String(lastOtaTs);
+    body += "}";
+  }
   body += "}";
 
   WiFiClientSecure client;
@@ -128,10 +146,6 @@ bool reportStatus(const char *status, int batteryPct, long long updatedAt) {
   return code == 200;
 }
 
-// Defined below in the photo-upload section; declared here so getCommand() can
-// reuse it to pull the "command" field out of the JSON response.
-static String jsonStringField(const String &json, const char *key);
-
 // ---------------------------------------------------------------------------
 // Command poll: HTTP POST /api/command-poll (authenticated via the backend)
 // The database's command path is no longer public, so we ask the web app for
@@ -139,8 +153,18 @@ static String jsonStringField(const String &json, const char *key);
 // per-device secret (NOT a fleet-wide key), sent in x-device-secret. The server
 // looks the expected value up by deviceId, so a leak of one board's secret
 // blasts only that one board.
+//
+// Response shape:
+//   { "deviceId":"...", "command":"idle" | "take_picture" | "update_firmware",
+//     "ota": { url, sha256, sizeBytes, version, boardType,
+//              expectedSeconds, minBytesPerSec, maxSeconds }   // when command == "update_firmware"
+//   }
 // ---------------------------------------------------------------------------
-String getCommand() {
+Command getCommand() {
+  Command out;
+  out.verb = "idle";
+  out.hasOta = false;
+
   String url = String(BACKEND_BASE_URL) + "/api/command-poll";
   // Match the transport to the URL scheme (deployed backend is https://, a
   // local dev server is http://) -- same approach as requestUploadUrl().
@@ -149,7 +173,7 @@ String getCommand() {
   WiFiClientSecure tls;
   if (secure) tls.setInsecure();   // skip cert check (testing); see README
   HTTPClient http;
-  if (!http.begin(secure ? (WiFiClient &)tls : (WiFiClient &)plain, url)) return "idle";
+  if (!http.begin(secure ? (WiFiClient &)tls : (WiFiClient &)plain, url)) return out;
   http.addHeader("Content-Type", "application/json");
   http.addHeader("x-device-secret", g_cfg.deviceSecret);
 
@@ -159,21 +183,55 @@ String getCommand() {
   http.end();
   if (code != 200) {
     Serial.printf("[command] command-poll HTTP %d\n", code);
-    return "idle";
+    return out;
   }
 
-  // Response is JSON like {"deviceId":"...","command":"take_picture"}.
-  String cmd = jsonStringField(resp, "command");
-  return cmd.length() ? cmd : "idle";
+  String verb = jsonStringField(resp, "command");
+  if (verb.length()) out.verb = verb;
+
+  if (out.verb == "update_firmware") {
+    String otaObj = jsonSubObject(resp, "ota");
+    if (otaObj.length()) {
+      out.ota.url             = jsonStringField(otaObj, "url");
+      out.ota.sha256          = jsonStringField(otaObj, "sha256");
+      out.ota.sizeBytes       = (size_t)jsonIntField(otaObj, "sizeBytes", 0);
+      out.ota.version         = jsonStringField(otaObj, "version");
+      out.ota.boardType       = jsonStringField(otaObj, "boardType");
+      out.ota.expectedSeconds = (uint32_t)jsonIntField(otaObj, "expectedSeconds", 0);
+      out.ota.minBytesPerSec  = (uint32_t)jsonIntField(otaObj, "minBytesPerSec", 0);
+      out.ota.maxSeconds      = (uint32_t)jsonIntField(otaObj, "maxSeconds", 0);
+      // Consider the payload valid only if the required fields are present;
+      // otherwise fall back to plain "update_firmware" without ota -- caller
+      // treats that as a malformed command and skips.
+      out.hasOta = out.ota.url.length() && out.ota.sha256.length() &&
+                   out.ota.sizeBytes > 0 && out.ota.boardType.length();
+      if (!out.hasOta) {
+        Serial.println("[command] update_firmware payload missing required fields -> ignoring");
+      }
+    } else {
+      Serial.println("[command] update_firmware without ota object -> ignoring");
+    }
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
 // Photo upload flow
 // ---------------------------------------------------------------------------
 
-// Tiny extractor for a "key":"value" string field in a flat JSON response.
-// (Good enough for our known, simple responses -- avoids pulling in a JSON lib.)
-static String jsonStringField(const String &json, const char *key) {
+// ---------------------------------------------------------------------------
+// Tiny hand-rolled JSON helpers. These handle the exact shapes WE emit from
+// our own server routes -- flat strings, flat integers, and one level of nested
+// object -- and nothing else. They deliberately fail closed (return "" / 0) on
+// anything they don't recognize; if you find yourself extending them to cover
+// arrays or booleans, that's the moment to bring in ArduinoJson instead.
+//
+// Skipping-strings-inside-values-of-other-keys is intentional: the "sha256"
+// value is a 64-char hex string that will absolutely contain '{' / '}' if we
+// treat every brace as structural. So the sub-object parser walks the string
+// character-by-character with an in-string flag.
+// ---------------------------------------------------------------------------
+String jsonStringField(const String &json, const char *key) {
   String needle = String("\"") + key + "\":\"";
   int i = json.indexOf(needle);
   if (i < 0) return "";
@@ -181,6 +239,55 @@ static String jsonStringField(const String &json, const char *key) {
   int j = json.indexOf('"', i);
   if (j < 0) return "";
   return json.substring(i, j);
+}
+
+long long jsonIntField(const String &json, const char *key, long long defaultValue) {
+  String needle = String("\"") + key + "\":";
+  int i = json.indexOf(needle);
+  if (i < 0) return defaultValue;
+  i += needle.length();
+  // Skip whitespace (we don't emit any, but Firebase / GCS occasionally do).
+  while (i < (int)json.length() && (json[i] == ' ' || json[i] == '\t')) i++;
+  if (i >= (int)json.length()) return defaultValue;
+  // A quoted value ("1234") is NOT an int for our purposes -- reject it so a
+  // shape drift shows up as defaultValue, not a silent wrong number.
+  if (json[i] == '"') return defaultValue;
+  int j = i;
+  if (json[j] == '-' || json[j] == '+') j++;
+  while (j < (int)json.length() && json[j] >= '0' && json[j] <= '9') j++;
+  if (j == i || (json[i] == '-' && j == i + 1)) return defaultValue;
+  // strtoll on the substring
+  String num = json.substring(i, j);
+  return strtoll(num.c_str(), nullptr, 10);
+}
+
+String jsonSubObject(const String &json, const char *key) {
+  String needle = String("\"") + key + "\":";
+  int i = json.indexOf(needle);
+  if (i < 0) return "";
+  i += needle.length();
+  while (i < (int)json.length() && (json[i] == ' ' || json[i] == '\t')) i++;
+  if (i >= (int)json.length() || json[i] != '{') return "";
+  int start = i;
+  int depth = 0;
+  bool inString = false;
+  bool escape = false;
+  for (int j = i; j < (int)json.length(); j++) {
+    char c = json[j];
+    if (escape) { escape = false; continue; }
+    if (inString) {
+      if (c == '\\') { escape = true; continue; }
+      if (c == '"') { inString = false; }
+      continue;
+    }
+    if (c == '"') { inString = true; continue; }
+    if (c == '{') depth++;
+    else if (c == '}') {
+      depth--;
+      if (depth == 0) return json.substring(start, j + 1);
+    }
+  }
+  return "";   // unbalanced -- malformed input
 }
 
 String requestUploadUrl(String &objectNameOut, const char *wakeReason, long long capturedAtMs) {
