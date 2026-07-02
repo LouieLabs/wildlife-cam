@@ -1,8 +1,9 @@
 # Flash Storage + OTA Plan (Heltec HT-HC33)
 
-> **Status (updated 2026-06-29):** Steps 1 & 2 **SHIPPED** on `main`; Step 3
-> (OTA update code) is the only piece still open. See the Decision Record
-> below for the 2026-06-29 entry. Supersedes the microSD storage approach.
+> **Status (updated 2026-07-01):** Steps 1 & 2 **SHIPPED** on `main`; Step 3
+> (OTA update code) design locked by plan review — see the 2026-07-01 entry
+> in the Decision Record for the 21 resolved questions. Supersedes the
+> microSD storage approach.
 > **Audience:** LouieLabs students + whoever (human or Claude) implements
 > Step 3 next.
 
@@ -65,12 +66,161 @@ In `cloud_telemetry_node`, retire the SD logic in `sd_store.{h,cpp}` and add a m
 - Add `picsRemaining()` = `(LittleFS.totalBytes() - LittleFS.usedBytes()) / runningAvgJpegBytes`.
 - `#include <LittleFS.h>`, `LittleFS.begin(true)`. Wear is a non-issue at capture-and-clear volumes.
 
-### Step 3 — OTA update code  *(⏳ OPEN — last; independent of the data layout)*
-On wake, read a firmware version/URL from RTDB `/devices/<id>/state` (or a new
-`/devices/<id>/ota` field). If newer than the running version: HTTPS-download the `.bin`
-(`WiFiClientSecure` + `Update.writeStream()`) into the **inactive** app slot → verify →
-switch boot partition → reboot. Serve the firmware `.bin` from GCS via the existing
-keyless cloud backend.
+### Step 3 — OTA update code  *(⏳ OPEN — design locked 2026-07-01)*
+
+**In plain words.** Today a bug fix means uncabling every camera and reflashing
+it over USB. This step lets the dashboard push a new firmware build to a chosen
+set of cameras. The dashboard picks *which build* and *which cameras*; each
+camera downloads the new firmware into a spare partition, checks a fingerprint
+so it knows the download wasn't corrupted, then reboots into the new build. If
+something goes wrong the camera automatically falls back to the version it was
+running before. Cameras that use a different chip (e.g. Lilygo P4) can never
+accidentally get a Heltec build (or vice versa) — it would brick them.
+
+#### Flow at a glance
+
+```
+  Dashboard (admin)                   Cloud                       Camera (on wake)
+  ─────────────────                   ─────                       ────────────────
+  pick build (SHA)                                                (asleep)
+  pick target cameras   ─── POST ──▶  /api/firmware/publish
+      (filtered by                    verifies board-type match
+       state.boardType)                writes otaTarget + command   (asleep)
+                                       to /devices/<id> in RTDB
+                                                                    wake (timer)
+                                                                    │
+                                                                    ├─ reportStatus
+                                                                    │  (writes fwVersion,
+                                                                    │   boardType, lastOta)
+                                                                    │
+                                                                    ├─ otaMarkValidIfPending
+                                                                    │  (only after a good
+                                                                    │   reportStatus)
+                                                                    │
+                                                                    ├─ uploadPendingPhotos
+                                                                    │
+                                                                    └─ getCommand
+                                                                         │
+                                                                         "update_firmware"
+                                                                         + ota{url, sha256,
+                                                                              sizeBytes,
+                                                                              version,
+                                                                              boardType,
+                                                                              expectedSeconds,
+                                                                              minBytesPerSec,
+                                                                              maxSeconds}
+                                                                         │
+                                                                         otaShouldAttempt?
+                                                                         (battery ≥40%,
+                                                                          RSSI ≥ -75dBm,
+                                                                          board matches)
+                                                                         │
+                                                                         cameraDeinit
+                                                                         │
+                                                                    ┌────┴────────────┐
+                                                                    ▼                 ▼
+                                                             download+stream    (any failure:
+                                                             SHA256 + Update.       Update.abort,
+                                                             writeStream +          reportStatus
+                                                             Update.setMD5)         lastOta=…,
+                                                                    │               continue → sleep)
+                                                                    ▼
+                                                             SHA256 match?
+                                                             ├─ no  → abort  ─────┐
+                                                             └─ yes → Update.end  │
+                                                                       │          │
+                                                                       ▼          │
+                                                             esp_ota_set_boot_    │
+                                                             partition(inactive)  │
+                                                                       │          │
+                                                                       ▼          │
+                                                                 ESP.restart      │
+                                                                       │          │
+                                                                       ▼          │
+                                                             new firmware boots   │
+                                                             (state: PENDING_     │
+                                                              VERIFY)             │
+                                                                       │          │
+                                                                       ▼          │
+                                                                 wifiConnect      │
+                                                                 reportStatus ────┤
+                                                                       │          │
+                                                                       ▼          │
+                                                                 otaMarkValid…    │
+                                                                 (cancels the     │
+                                                                  auto-rollback)  │
+                                                                                  ▼
+                                                                     bootloader auto-reverts
+                                                                     to previous slot if the
+                                                                     new firmware never marks
+                                                                     itself valid
+```
+
+#### Files touched
+
+| File | Change |
+|---|---|
+| `cloud_telemetry_node/node_config.h` | Add `BOARD_TYPE` compile-time constant (e.g. `"heltec-ht-hc33"`) |
+| `cloud_telemetry_node/cloud_backend.{h,cpp}` | Add `StatusReport` struct, `Command` struct; extend `reportStatus()` and `getCommand()`; add `jsonIntField` + `jsonSubObject` helpers next to existing `jsonStringField` |
+| `cloud_telemetry_node/ota_update.{h,cpp}` | **NEW** — `OtaResult` enum, `otaShouldAttempt()`, `otaDownloadAndFlash()`, `otaMarkValidIfPending()`, plus first-boot self-check log lines |
+| `cloud_telemetry_node/cloud_telemetry_node.ino` | Wire `otaMarkValidIfPending` right after successful `reportStatus`; wire OTA dispatch after `uploadPendingPhotos` |
+| `hardware-tests/HT-HC33_OTA_Unit/` | **NEW** — bench sketch exercising `otaShouldAttempt` + JSON helpers with PASS/FAIL prints |
+| `web/app/api/command-poll/route.ts` | Include `ota` object in response when `/devices/<id>/otaTarget` present |
+| `web/app/api/firmware/publish/route.ts` | **NEW** admin-only route: board-type match, build-exists HEAD check, server-computed SHA256, per-device atomic RTDB write |
+| `web/app/dashboard/firmware/page.tsx` (or similar) | **NEW** page: build picker (filtered by boardType), camera picker (filtered by state.boardType), confirm-and-publish |
+| Cloud Build config | New step: `arduino-cli compile` → drop `firmware.bin` under `web/public/firmware/builds/<boardType>/<sha>/` (staging) |
+| RTDB rules | Explicit deny on `/devices/<id>/otaTarget` public write; state.{fwVersion,boardType,lastOta} device-secret-only |
+| `web/test/api/firmware-publish.test.ts` | **NEW** — all 6 safety assertions |
+| `web/test/api/command-poll.test.ts` | Extend for `ota` present/absent cases |
+| `web/test/rules/` | Extend for new RTDB paths |
+
+#### Locked design decisions (from 2026-07-01 plan review)
+
+1. **Command-driven, not auto-poll.** Dashboard picks the build via the existing `getCommand()` bus. No on-device version-comparison logic.
+2. **Rollback is real.** Partition table must have rollback enabled; firmware calls `esp_ota_mark_app_valid_cancel_rollback()` **only** after the first successful `reportStatus()` post-flash. Never at boot.
+3. **On-device safety gate `otaShouldAttempt()`** — battery ≥ 40%, wake reason ∈ {timer, button}, RSSI ≥ -75 dBm, and `otaTarget.boardType == BOARD_TYPE`.
+4. **Fires in step-3 dispatch, after `uploadPendingPhotos()`** — photos never lost.
+5. **Content-addressed hosting** at `web/public/firmware/builds/<boardType>/<sha>/firmware.bin`. Browser-flasher's `firmware.bin` stays under `latest-stable/`. No collision.
+6. **Integrity:** SHA256 in the `otaTarget` payload (server-computed at publish time), verified in-flight by device; `Update.setMD5()` for the library's post-write check; `WiFiClientSecure.setInsecure()` (no cert pinning for v1).
+7. **Payload shape:** sibling `/devices/<id>/otaTarget: {url, sha256, sizeBytes, version, boardType, expectedSeconds, minBytesPerSec, maxSeconds}`. `command` stays a scalar string. Device writes back `state.fwVersion`, `state.boardType`, `state.lastOta = {result, ts, from, to, durationS}`.
+8. **Publish pipeline:** Cloud Build compiles into a staging area; the dashboard admin picks a build **and** the subset of cameras to roll out to. V1 target: 1 test camera at a time.
+9. **Board-type gate at three layers:** device refuses mismatched `boardType`; publish route refuses mismatched write; dashboard UI filters builds by camera's `state.boardType`.
+10. **JSON parsing:** extend the hand-rolled helper with `jsonIntField` + `jsonSubObject`. No new dep.
+11. **Error path is explicit** — every failure returns an `OtaResult` variant (`DownloadFailed`, `NoSpace`, `WriteFailed`, `ShaMismatch`, `Stalled`, `Ok`), all of which run `Update.abort()` and continue the wake cycle rather than reboot.
+12. **Single new module** — `ota_update.{h,cpp}` owns everything OTA-scoped.
+13. **`reportStatus()` grows via a `StatusReport` struct**, not a longer arg list.
+14. **`otaMarkValidIfPending()` lives in `.ino`, called right after `reportStatus` returns true.**
+15. **`getCommand()` returns a `Command` struct** with an optional embedded `OtaTarget`.
+16. **Firmware-side tests:** bench sketch at `hardware-tests/HT-HC33_OTA_Unit/` exercises `otaShouldAttempt` and the JSON helpers with print-assertions. Matches the `HT-HC33_SDTest` pattern.
+17. **`/api/firmware/publish` gets full test coverage** — auth, board-type match, build-exists (HEAD), server-computed SHA256, rate-limit, per-device atomic write.
+18. **RTDB rules for the new paths are explicit and tested.**
+19. **Server-driven stall detector.** Backend puts `expectedSeconds`/`minBytesPerSec`/`maxSeconds` in the `otaTarget` payload; device enforces. Two-part detector: wall-clock ceiling + rate-floor. V1 hardcodes reasonable numbers for 2.4 GHz — HaLow numbers land when the radio wires up (see TODOS.md).
+20. **Streaming SHA256** computed in the same loop as `Update.write()`. No LittleFS involvement.
+21. **Rollout stagger is deferred** to TODOS.md; v1 targets 1–5 cameras.
+
+#### First-boot self-check (safety-critical)
+
+When new firmware boots, `esp_ota_get_state_partition()` returns `ESP_OTA_IMG_PENDING_VERIFY`. Firmware **must** log:
+- `[ota] pending verify — waiting on reportStatus` at boot
+- `[ota] mark_valid ok` when `otaMarkValidIfPending()` clears the rollback trigger
+
+The bench test in `HT-HC33_OTA_Unit/` greps for both markers. Without this, a bug in `mark_valid` is silent — the fleet reverts every OTA and no one notices except by watching `state.fwVersion` never advance.
+
+#### Known failure modes and how the plan covers them
+
+| Failure | Guard | User sees |
+|---|---|---|
+| Cloud outage / bad URL | HTTPS fails, `OtaResult::DownloadFailed` | `state.lastOta.result="DownloadFailed"` |
+| Wi-Fi drops mid-flash | short write → `Update.abort()`, `WriteFailed` | `state.lastOta.result="WriteFailed"` |
+| Manifest tampered / wrong .bin | SHA256 mismatch → `Update.abort()`, `ShaMismatch` | `state.lastOta.result="ShaMismatch"` |
+| Wrong-arch binary (Heltec .bin on Lilygo) | Device refuses at `otaShouldAttempt` + backend refuses at publish + UI filters at pick time | `state.lastOta.result="BoardTypeMismatch"` |
+| Low battery | `otaShouldAttempt` returns false; no attempt | (silent, correctly) |
+| Motion event during OTA window | Gate excludes PIR wakes — motion never blocked | (silent, correctly) |
+| Storage exhaustion | `Update.begin()` returns false → `NoSpace` | `state.lastOta.result="NoSpace"` |
+| Stalled download | Server-driven `minBytesPerSec` + 15 s grace → abort | `state.lastOta.result="Stalled"` |
+| Timeout exceeds `maxSeconds` | Wall-clock ceiling → abort | `state.lastOta.result="Timeout"` |
+| New firmware boots but never mark_valid | Bootloader auto-reverts on next reset | ⚠️ silent — dashboard sees fwVersion unchanged; document as a real "reverted" case |
+| `mark_valid` code is itself buggy | First-boot self-check log lines make it grep-able in bench test | Explicit log; bench test asserts on it |
 
 ## Decision Record
 
@@ -90,6 +240,29 @@ rewrite history. (See the maintenance note below for why.)
   single-app max-storage (~11.5 MB vs ~14 MB LittleFS). Rationale: repartitioning later to
   add OTA would wipe field photos, so the slots must exist up front; the ~2.5 MB of storage
   given up is worth remote updatability.
+- **2026-07-01 — Step 3 design locked (plan review).** 21 design questions
+  resolved via `/plan-eng-review`. Highlights:
+  - **Flow model:** command-driven (extend `getCommand()` on the existing
+    `command-poll` bus), not auto-poll + version-compare. Rationale: reuses
+    existing device-secret auth and rate limiting; dashboard controls rollout;
+    git SHAs don't order anyway.
+  - **Scope expanded from the 5-line sketch** to include a Cloud Build compile
+    step, a staging area under `web/public/firmware/builds/<boardType>/<sha>/`,
+    a dashboard rollout page, and a defense-in-depth board-type gate (device +
+    backend + UI). Driver: near-term Lilygo T-Halow-P4 support means Heltec/
+    Lilygo binaries must never be misrouted (guaranteed brick — different CPU
+    architecture).
+  - **Rollback is real:** partition table's `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`
+    must be on, and `esp_ota_mark_app_valid_cancel_rollback()` is called only
+    after the first successful `reportStatus()` post-flash. First-boot log
+    lines make a `mark_valid` regression grep-able in bench tests.
+  - **Server-driven stall detector:** `otaTarget` carries `expectedSeconds`,
+    `minBytesPerSec`, `maxSeconds` — computed by the backend from mesh topology
+    (v1 hardcodes 2.4 GHz numbers; HaLow numbers land later, see TODOS.md).
+    Client just enforces. Radio-agnostic wire format.
+  - **Not shipped in v1:** ECDSA firmware signing, rollout stagger, OTA history
+    log, Lilygo Cloud Build (blocked on Lilygo firmware source landing),
+    boot-counter watchdog. See TODOS.md at repo root for the ones we filed.
 - **2026-06-29 — Steps 1 & 2 shipped on `main`.** The 16 MB OTA-ready partition
   table landed in [`firmware/heltec-core-overrides/`](../firmware/heltec-core-overrides/)
   (boards.local.txt + custom CSV in the variant directory); the flash storage layer
