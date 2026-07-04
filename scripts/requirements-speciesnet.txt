@@ -1,8 +1,0 @@
-# Dependencies for scripts/speciesnet-worker.py (AI animal detection).
-# SpeciesNet pulls in PyTorch (~GBs) -- keep it in its OWN venv, separate from
-# the ingest venv:
-#   python3 -m venv scripts/.venv-speciesnet
-#   scripts/.venv-speciesnet/bin/pip install -r scripts/requirements-speciesnet.txt
-# On macOS, if the install complains, add:  --use-pep517
-speciesnet>=5.0
-Pillow>=10,<12

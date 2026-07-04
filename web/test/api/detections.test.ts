@@ -8,14 +8,12 @@ const m = vi.hoisted(() => {
   const get = vi.fn().mockResolvedValue({ docs: [] });
   const limit = vi.fn(() => ({ get }));
   const orderBy = vi.fn(() => ({ limit }));
-  const update = vi.fn().mockResolvedValue(undefined);
-  const doc = vi.fn(() => ({ update }));
-  const collection = vi.fn(() => ({ add, orderBy, doc }));
+  const collection = vi.fn(() => ({ add, orderBy }));
   return {
     requireLouieLabsUser: vi.fn(),
     checkRateLimit: vi.fn(),
     getSignedUrl: vi.fn().mockResolvedValue(['https://signed.read/url']),
-    add, get, limit, orderBy, update, doc, collection,
+    add, get, limit, orderBy, collection,
   };
 });
 
@@ -143,101 +141,6 @@ describe('POST /api/detections (server-to-server, shared CAMERA_API_KEY)', () =>
       env: 'dev',
       analyzed: true,
       detections: [{ label: 'deer', confidence: 0.91, box: [10, 20, 30, 40] }],
-    }));
-  });
-});
-
-describe('POST /api/detections with id (SpeciesNet worker updates the pending doc)', () => {
-  const authed = { 'x-camera-api-key': 'TEST-PIPELINE-KEY' };
-
-  beforeEach(() => {
-    m.checkRateLimit.mockReset().mockResolvedValue(okLimit);
-    m.add.mockReset().mockResolvedValue({ id: 'doc-x' });
-    m.update.mockReset().mockResolvedValue(undefined);
-    m.doc.mockClear();
-    m.collection.mockClear();
-    process.env.CAMERA_API_KEY = 'TEST-PIPELINE-KEY';
-  });
-
-  it('updates the existing doc in place (no duplicate add) and marks it public for animals', async () => {
-    const res = await POST(makeRequest({
-      method: 'POST',
-      headers: authed,
-      body: {
-        id: 'pending-1',
-        deviceId: 'cam_a',
-        detections: [{ label: 'mule deer', confidence: 0.93, box: [10, 20, 30, 40] }],
-        boxes: [{ class: 'animal', bbox: [10, 20, 30, 40] }],
-      },
-    }));
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ id: 'pending-1', public: true });
-    expect(m.add).not.toHaveBeenCalled(); // update-in-place, never a duplicate
-    expect(m.doc).toHaveBeenCalledWith('pending-1');
-    expect(m.update).toHaveBeenCalledWith(expect.objectContaining({
-      analyzed: true,
-      public: true,
-      detections: [{ label: 'mule deer', confidence: 0.93, box: [10, 20, 30, 40] }],
-      boxes: [{ class: 'animal', bbox: [10, 20, 30, 40] }],
-    }));
-  });
-
-  it('keeps the capture PRIVATE when a person is detected (gallery safety gate)', async () => {
-    const res = await POST(makeRequest({
-      method: 'POST',
-      headers: authed,
-      body: {
-        id: 'pending-2',
-        deviceId: 'cam_a',
-        detections: [
-          { label: 'person', confidence: 0.88, box: [0, 0, 10, 10] },
-          { label: 'raccoon', confidence: 0.7, box: [5, 5, 10, 10] },
-        ],
-      },
-    }));
-    expect(await res.json()).toEqual({ id: 'pending-2', public: false });
-    expect(m.update).toHaveBeenCalledWith(expect.objectContaining({ public: false }));
-  });
-
-  it('keeps the capture PRIVATE for a dog, but NOT for e.g. dogwood-like labels', async () => {
-    await POST(makeRequest({
-      method: 'POST',
-      headers: authed,
-      body: { id: 'pending-3', deviceId: 'cam_a', detections: [{ label: 'domestic dog', confidence: 0.9, box: [0, 0, 1, 1] }] },
-    }));
-    expect(m.update).toHaveBeenLastCalledWith(expect.objectContaining({ public: false }));
-  });
-
-  it('404s when the doc id does not exist (worker drops the item, no retry loop)', async () => {
-    m.update.mockRejectedValueOnce(new Error('NOT_FOUND'));
-    const res = await POST(makeRequest({
-      method: 'POST',
-      headers: authed,
-      body: { id: 'gone-1', deviceId: 'cam_a', detections: [] },
-    }));
-    expect(res.status).toBe(404);
-  });
-
-  it('drops malformed detection entries instead of storing junk', async () => {
-    await POST(makeRequest({
-      method: 'POST',
-      headers: authed,
-      body: {
-        id: 'pending-4',
-        deviceId: 'cam_a',
-        detections: [
-          { label: 'bobcat', confidence: 0.8, box: [1, 2, 3, 4] },
-          { label: '', confidence: 0.9, box: [1, 2, 3, 4] },        // empty label -> dropped
-          { notALabel: true },                                       // junk -> dropped
-          { label: 'coyote', confidence: 'high', box: [1, 2, 3] },   // bad conf + box -> nulled
-        ],
-      },
-    }));
-    expect(m.update).toHaveBeenLastCalledWith(expect.objectContaining({
-      detections: [
-        { label: 'bobcat', confidence: 0.8, box: [1, 2, 3, 4] },
-        { label: 'coyote', confidence: null, box: null },
-      ],
     }));
   });
 });
