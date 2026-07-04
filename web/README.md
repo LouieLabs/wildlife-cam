@@ -84,7 +84,6 @@ web/
       device-secret/route.ts      authed: recover a lost secret (RTDB)
       command/route.ts            authed: set a device command e.g. take_picture (RTDB)
       detections/route.ts         GET authed (dashboard) / POST pipeline (Firestore)
-      analysis-queue/route.ts     SpeciesNet worker inbox: pending captures + signed read URLs
   lib/
     firebaseAdmin.ts              keyless Admin SDK -> RTDB + named Firestore
     firebaseClient.ts             browser Firebase (public web config)
@@ -94,51 +93,6 @@ web/
   firestore.rules                 locked Firestore rules
   .env.local.example              copy to .env.local and fill in
 ```
-
----
-
-## AI animal detection — the SpeciesNet worker
-
-> **In plain words.** Photos land on the dashboard "not analyzed". A separate
-> little program (the *worker*) picks them up, runs Google's free SpeciesNet
-> camera-trap model on your own computer (no per-image cloud fees, ~2000
-> species), and writes back what it found. The dashboard then shows the
-> species names and draws boxes around the animals.
-
-Flow:
-
-```
-camera -> upload -> capture-complete   (Firestore doc, analyzed:false)
-    worker: GET /api/analysis-queue    (pending docs + signed image links)
-    worker: run SpeciesNet locally     (detector + species classifier)
-    worker: POST /api/detections {id, detections, boxes}
-                                       (doc updated: analyzed:true, labels, boxes)
-```
-
-Both worker routes are guarded by the shared **`CAMERA_API_KEY`** env var
-(server-to-server; boards and browsers never call them). The **`public`
-gallery gate is computed server-side** in POST /api/detections: a capture is
-marked `public:true` only when no *person* or *dog* label is present — the
-worker's input is never trusted for that decision.
-
-Run it (see `scripts/speciesnet-worker.py` for full usage):
-
-```bash
-python3 -m venv scripts/.venv-speciesnet
-scripts/.venv-speciesnet/bin/pip install -r scripts/requirements-speciesnet.txt
-export CAMERA_API_KEY=...   # same value the backend has
-scripts/.venv-speciesnet/bin/python scripts/speciesnet-worker.py \
-    --backend https://wildlife-dashboard-ee47ntxftq-uw.a.run.app \
-    --country USA --admin1-region CA --loop 60
-```
-
-Decision record (2026-07-03): **SpeciesNet over a Gemini/Vertex call.**
-Chosen because it's purpose-built for camera traps (MegaDetector lineage — the
-same tool the top-level README already recommends), free to run locally, and
-keeps images out of third-party inference APIs. Trade-off accepted: it needs a
-machine to run on (a student laptop or, later, a Cloud Run job) instead of
-being a serverless API call; until the worker runs, captures simply stay
-`analyzed:false` — nothing is lost.
 
 ---
 
