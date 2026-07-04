@@ -123,9 +123,24 @@ export default function DashboardPage() {
     }
     load();
     const t = setInterval(load, 10000); // refresh every 10s
+
+    // Kick the in-cloud AI while the dashboard is open: any unanalyzed photos
+    // get Gemini labels + boxes (keyless, server-side — see /api/analyze-pending).
+    // Slower cadence than load(): each call may run several model invocations.
+    // Fire-and-forget; the next load() picks up whatever finished.
+    async function analyze() {
+      try {
+        await authedFetch('/api/analyze-pending', { method: 'POST' });
+      } catch {
+        /* non-fatal: photos stay "pending" and get retried next tick */
+      }
+    }
+    analyze();
+    const ta = setInterval(analyze, 30000);
     return () => {
       active = false;
       clearInterval(t);
+      clearInterval(ta);
     };
   }, [user]);
 

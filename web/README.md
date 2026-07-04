@@ -84,7 +84,9 @@ web/
       device-secret/route.ts      authed: recover a lost secret (RTDB)
       command/route.ts            authed: set a device command e.g. take_picture (RTDB)
       detections/route.ts         GET authed (dashboard) / POST pipeline (Firestore)
+      analyze-pending/route.ts    authed: run the in-cloud AI over unanalyzed captures
   lib/
+    analyzeCaptures.ts            keyless Gemini (Vertex AI) zero-shot animal detection
     firebaseAdmin.ts              keyless Admin SDK -> RTDB + named Firestore
     firebaseClient.ts             browser Firebase (public web config)
     requireLouieLabsUser.ts       verify ID token + @louielabs.com domain
@@ -93,6 +95,48 @@ web/
   firestore.rules                 locked Firestore rules
   .env.local.example              copy to .env.local and fill in
 ```
+
+---
+
+## AI animal detection — in-cloud, keyless (Gemini via Vertex AI)
+
+> **In plain words.** Photos land on the dashboard "not analyzed". While a
+> signed-in student has the dashboard open, the server picks up a few pending
+> photos at a time, shows each to Gemini ("what animals do you see, and
+> where?"), and saves the species labels + bounding boxes back onto the same
+> record. No separate worker to run, and **no API keys anywhere**: Gemini is
+> called through Vertex AI with the same keyless service-account credentials
+> the rest of this backend already uses.
+
+Flow:
+
+```
+camera -> upload -> capture-complete            (doc: analyzed:false)
+dashboard (any signed-in user, every 30 s)
+   -> POST /api/analyze-pending                 (authed, rate-limited)
+      -> lib/analyzeCaptures.ts: Gemini zero-shot per photo
+      -> doc updated: detections, boxes, analyzed:true, public gate
+```
+
+- The **`public` gallery gate is computed server-side**: a capture is
+  `public:true` only when no *person* or *dog* label is present. Fail-safe:
+  docs start `public:false` and stay private if analysis never runs.
+- Failed photos just stay `analyzed:false` and get retried on a later tick.
+- Config (optional): `VERTEX_LOCATION` (default `us-central1`),
+  `GEMINI_MODEL` (default `gemini-2.5-flash`).
+
+**One-time GCP setup** (or the first analysis calls will 403):
+1. Enable the **Vertex AI API** on `louielabs-animal-cams`.
+2. Grant `cloud-backend@louielabs-animal-cams.iam.gserviceaccount.com` the
+   **Vertex AI User** role (IAM page).
+
+Decision record (2026-07-03): **in-cloud Gemini over an external worker.**
+An external analyzer (SpeciesNet worker, PR #39, reverted in PR #40) needed a
+shared `CAMERA_API_KEY` handed to whoever runs it — a secret to distribute and
+a public server-to-server surface to defend. Running the model call inside the
+backend removes both (nothing new to secure) at the cost of tying analysis to
+Google's hosted model. Planned next steps: a Python Cloud Run job adds YOLOv8
+alongside Gemini; later, a tiny on-device model gates uploads at the camera.
 
 ---
 
