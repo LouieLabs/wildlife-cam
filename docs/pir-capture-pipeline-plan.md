@@ -106,3 +106,35 @@ Goal: capturing and uploading make progress independently.
 - Per motion event: single photo, a short burst, or an MJPEG clip?
 - Animal pre-check: start with the cheap heuristic, or go straight to TFLite-Micro?
 - Battery/solar target runtime (drives how aggressive the sleep budget must be)?
+
+---
+
+## Decision Record
+
+### 2026-07-09 — Motion linger: stay awake after a motion wake (Phase 1.5)
+**Context.** In the field, `cloud_telemetry_node` captured a photo on a PIR wake
+and then deep-slept immediately. Deep sleep drops Wi-Fi (`WiFi.mode(WIFI_OFF)` in
+`goToDeepSleep`), so every subsequent motion event paid a full cold Wi-Fi
+reconnect (several seconds via `wifiStaConnect`) before it could shoot. Animals
+that moved through repeatedly were missed because the camera was busy
+reconnecting.
+
+**Decision.** Added a single-threaded "linger" window (`lingerForMotion()` in
+`cloud_telemetry_node.ino`, tuned by `MOTION_LINGER_MS` / `MOTION_MIN_GAP_MS` /
+`MOTION_POLL_MS` in `node_config.h`). After a motion wake, the node stays awake
+with Wi-Fi kept up and polls the PIR pin directly. Fresh motion captures
+immediately with **no** reconnect; each motion resets the window; we deep-sleep
+only after `MOTION_LINGER_MS` of quiet. Captures are rate-limited by
+`MOTION_MIN_GAP_MS` so a stationary animal doesn't machine-gun the camera.
+
+**Why this and not the full Phase 2 design.** The FreeRTOS Capture+Uploader
+task split with abort-on-motion (Phase 2 above) is still the target, but it's a
+larger refactor. The linger loop delivers the field-critical win — no missed
+shots from reconnect latency — with a small, low-risk change, and maps cleanly
+onto the MOTION/LULL states when Phase 2 lands (linger = MOTION staying awake;
+the quiet timeout = the LULL boundary). `MOTION_LINGER_MS` here is the
+short-form sibling of the plan's `LULL_SECONDS`.
+
+**Trade-off.** Wi-Fi is powered during the linger window, so a longer window
+means fewer missed shots but more battery. Started at 30 s; tune per site once
+we have real power measurements (see risk #4).
