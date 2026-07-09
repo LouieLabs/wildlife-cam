@@ -121,9 +121,19 @@ dashboard (any signed-in user, every 30 s)
 - The **`public` gallery gate is computed server-side**: a capture is
   `public:true` only when no *person* or *dog* label is present. Fail-safe:
   docs start `public:false` and stay private if analysis never runs.
-- Failed photos just stay `analyzed:false` and get retried on a later tick.
-- Config (optional): `VERTEX_LOCATION` (default `us-central1`),
-  `GEMINI_MODEL` (default `gemini-2.5-flash`).
+- Failed photos just stay `analyzed:false` and get retried on a later tick
+  (one automatic retry per attempt covers transient Vertex hiccups).
+- The prompt is tuned for camera-trap reality: **night infrared / grayscale**,
+  motion blur, partial animals at the edge, and — the big one — it's told to
+  return `[]` rather than hallucinate an animal in an empty frame (swaying
+  branches, IR glare, timestamps are explicitly *not* animals). It's primed
+  with the **local species** (Santa Cruz Mountains) to bias plausible IDs.
+- **Confidence floor:** animal guesses below `DETECTION_MIN_CONFIDENCE` (0.3) are
+  dropped from the saved list. **Person/dog are exempt** and always kept — a
+  faint "maybe a person" still forces the capture private (fail-safe privacy).
+- Config (all optional): `VERTEX_LOCATION` (default `us-central1`),
+  `GEMINI_MODEL` (default `gemini-2.5-flash`),
+  `DETECTION_MIN_CONFIDENCE` (default `0.3`), `REGION_SPECIES` (species hint).
 
 **One-time GCP setup** (or the first analysis calls will 403):
 1. Enable the **Vertex AI API** on `louielabs-animal-cams`.
