@@ -54,6 +54,36 @@ function sanitizeOtaTarget(raw: unknown): OtaTargetV1 | null {
   return { url, sha256, sizeBytes, version, boardType, expectedSeconds, minBytesPerSec, maxSeconds };
 }
 
+// Shape written by PATCH /api/devices/[deviceId] (set_wifi). Handed to the
+// firmware's getCommand() as the nested "wifi" object.
+type WifiTargetV1 = { ssid: string; pass: string; netMode: string };
+
+// Only hand back a well-formed target. ssid must be present; pass may be empty
+// (open network); netMode defaults to 2.4 GHz Wi-Fi (the only radio the current
+// firmware connects with).
+function sanitizeWifiTarget(raw: unknown): WifiTargetV1 | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  const ssid = typeof r.ssid === 'string' ? r.ssid : '';
+  const pass = typeof r.pass === 'string' ? r.pass : '';
+  let netMode = typeof r.netMode === 'string' ? r.netMode : 'wifi';
+  if (netMode !== 'wifi' && netMode !== 'halow' && netMode !== 'both') netMode = 'wifi';
+  if (!ssid) return null;
+  return { ssid, pass, netMode };
+}
+
+// Shape written by POST /api/devices/[deviceId]/rename (set_id). Handed to the
+// firmware as the nested "rename" object.
+type IdTargetV1 = { newId: string };
+
+function sanitizeIdTarget(raw: unknown): IdTargetV1 | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  const newId = typeof r.newId === 'string' ? r.newId : '';
+  if (!/^[A-Za-z0-9_-]{3,40}$/.test(newId)) return null;
+  return { newId };
+}
+
 export async function POST(req: NextRequest) {
   const rl = await checkRateLimit({
     key: `ip:${clientIp(req)}:command-poll`,
@@ -91,6 +121,24 @@ export async function POST(req: NextRequest) {
     // Command says update but the payload is gone/malformed. Return the verb
     // anyway -- the firmware treats "update_firmware without ota" as a skip,
     // and the dashboard sees the missing payload from state.lastOta later.
+  }
+
+  if (command === 'set_wifi') {
+    const wifi = sanitizeWifiTarget(await rtdbGet<unknown>(`devices/${deviceId}/wifiTarget`));
+    if (wifi) {
+      return NextResponse.json({ deviceId, command, wifi });
+    }
+    // Missing/malformed target -> return the verb; firmware ignores a set_wifi
+    // with no wifi object rather than joining a garbage network.
+  }
+
+  if (command === 'set_id') {
+    const rename = sanitizeIdTarget(await rtdbGet<unknown>(`devices/${deviceId}/idTarget`));
+    if (rename) {
+      return NextResponse.json({ deviceId, command, rename });
+    }
+    // Missing/malformed target -> return the verb; firmware ignores a set_id
+    // with no rename object rather than adopting a garbage id.
   }
 
   return NextResponse.json({ deviceId, command });

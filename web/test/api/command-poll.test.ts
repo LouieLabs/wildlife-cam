@@ -143,4 +143,84 @@ describe('POST /api/command-poll', () => {
     expect(body.ota).toBeUndefined();
     expect(body.command).toBe('update_firmware');
   });
+
+  // ---- set_wifi payload -----------------------------------------------------
+
+  it('embeds the wifi object when the command is "set_wifi"', async () => {
+    m.rtdbGet
+      .mockResolvedValueOnce('set_wifi')                                   // command
+      .mockResolvedValueOnce({ ssid: 'School-WiFi', pass: 'pw12345678', netMode: 'wifi' }); // wifiTarget
+    const res = await POST(makeRequest({
+      method: 'POST',
+      headers: { 'x-device-secret': 'RIGHT' },
+      body: { deviceId: 'cam_a' },
+    }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      deviceId: 'cam_a',
+      command: 'set_wifi',
+      wifi: { ssid: 'School-WiFi', pass: 'pw12345678', netMode: 'wifi' },
+    });
+    expect(m.rtdbGet).toHaveBeenCalledWith('devices/cam_a/wifiTarget');
+  });
+
+  it('defaults netMode to "wifi" and allows an empty password (open network)', async () => {
+    m.rtdbGet
+      .mockResolvedValueOnce('set_wifi')
+      .mockResolvedValueOnce({ ssid: 'OpenAP', pass: '' });   // no netMode
+    const res = await POST(makeRequest({
+      method: 'POST',
+      headers: { 'x-device-secret': 'RIGHT' },
+      body: { deviceId: 'cam_a' },
+    }));
+    const body = await res.json();
+    expect(body.wifi).toEqual({ ssid: 'OpenAP', pass: '', netMode: 'wifi' });
+  });
+
+  it('drops the wifi key when the target has no ssid (malformed)', async () => {
+    m.rtdbGet
+      .mockResolvedValueOnce('set_wifi')
+      .mockResolvedValueOnce({ pass: 'x' });   // no ssid
+    const res = await POST(makeRequest({
+      method: 'POST',
+      headers: { 'x-device-secret': 'RIGHT' },
+      body: { deviceId: 'cam_a' },
+    }));
+    const body = await res.json();
+    expect(body.wifi).toBeUndefined();
+    expect(body.command).toBe('set_wifi');
+  });
+
+  // ---- set_id payload -------------------------------------------------------
+
+  it('embeds the rename object when the command is "set_id"', async () => {
+    m.rtdbGet
+      .mockResolvedValueOnce('set_id')            // command
+      .mockResolvedValueOnce({ newId: 'pond_cam_02' }); // idTarget
+    const res = await POST(makeRequest({
+      method: 'POST',
+      headers: { 'x-device-secret': 'RIGHT' },
+      body: { deviceId: 'cam_a' },
+    }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      deviceId: 'cam_a',
+      command: 'set_id',
+      rename: { newId: 'pond_cam_02' },
+    });
+  });
+
+  it('drops the rename key when the new id is malformed', async () => {
+    m.rtdbGet
+      .mockResolvedValueOnce('set_id')
+      .mockResolvedValueOnce({ newId: 'no spaces allowed!' });
+    const res = await POST(makeRequest({
+      method: 'POST',
+      headers: { 'x-device-secret': 'RIGHT' },
+      body: { deviceId: 'cam_a' },
+    }));
+    const body = await res.json();
+    expect(body.rename).toBeUndefined();
+    expect(body.command).toBe('set_id');
+  });
 });

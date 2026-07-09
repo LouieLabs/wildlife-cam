@@ -41,3 +41,33 @@ bool loadDeviceConfig();
 // Write the non-empty fields of `c` to NVS (empty = leave that key as-is). Used
 // by serial / browser provisioning. Returns true on success.
 bool saveDeviceConfig(const DeviceConfig &c);
+
+// ---------------------------------------------------------------------------
+// Dashboard-pushed config changes (OTA "set_wifi" / "set_id" commands)
+// ---------------------------------------------------------------------------
+// These let the dashboard re-point a camera's 2.4 GHz Wi-Fi, or rename its id,
+// without a USB cable -- the board applies the change to NVS and reboots. See
+// cloud_telemetry_node.ino (command handling) and docs/pir-capture-pipeline-plan.md.
+
+// Apply a new 2.4 GHz Wi-Fi network from a set_wifi command. Before overwriting,
+// it STASHES the current creds as a backup and starts a "trial" of `trials`
+// wakes. If the new network never connects, wifiTrialResolve() restores the
+// backup so a wrong password can't strand the camera off-grid. Returns false if
+// the NVS write failed (creds left unchanged).
+bool applyWifiChange(const String &newSsid, const String &newPass,
+                     const String &newNetMode, uint8_t trials);
+
+// True while a set_wifi trial is in progress (new creds live, backup still held).
+bool wifiTrialActive();
+
+// Call once per wake AFTER the Wi-Fi connect attempt, passing whether we got
+// online. On the first success it COMMITS (drops the backup); on repeated
+// failure it counts down and, when the trials run out, RESTORES the backup and
+// returns true -- the caller should then reboot to reconnect on the old network.
+bool wifiTrialResolve(bool connectedOk);
+
+// Apply a new device identity from a set_id command (rename). The per-device
+// secret is left unchanged: the cloud keeps the same pre_shared_key under the
+// new id, so the board stays authenticated across the switch. Returns false on
+// NVS write failure (id left unchanged).
+bool applyIdChange(const String &newId);

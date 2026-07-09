@@ -50,15 +50,34 @@ bool reportStatus(const StatusReport &r);
 //   "take_picture"     -- capture + upload one photo now
 //   "update_firmware"  -- ota is populated; consider running otaShouldAttempt +
 //                         otaDownloadAndFlash
+//   "set_wifi"         -- wifi is populated; re-point 2.4 GHz Wi-Fi + reboot
+//   "set_id"           -- rename is populated; change device id + reboot
 struct Command {
   String verb;
   bool hasOta;         // true iff verb == "update_firmware" and ota parsed OK
   OtaTarget ota;       // meaningful only when hasOta is true
+
+  // set_wifi payload (meaningful only when hasWifi).
+  bool hasWifi;
+  String wifiSsid;
+  String wifiPass;
+  String wifiNetMode;  // "wifi" | "halow" | "both" (usually "wifi")
+
+  // set_id payload (meaningful only when hasRename).
+  bool hasRename;
+  String renameNewId;
 };
 
 // Ask the backend for this device's pending command (via /api/command-poll,
 // authenticated with the per-device secret).
 Command getCommand();
+
+// Tell the backend we applied a one-shot command (set_wifi / set_id), so it
+// clears the command (set_wifi) or finalizes the rename by removing the old
+// registration (set_id). Call it while STILL on the working connection, right
+// before rebooting. POSTs /api/command-ack with the per-device secret; returns
+// true on HTTP 200.
+bool ackCommand();
 
 // ---- Hand-rolled JSON helpers (exposed so ota_update + the bench test can
 // parse the nested "ota" object in the command-poll response). These only

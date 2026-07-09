@@ -80,6 +80,14 @@ export default function DashboardPage() {
   const [error, setError] = useState('');
   const [revealedSecrets, setRevealedSecrets] = useState<Record<string, boolean>>({});
   const [revealedPasswords, setRevealedPasswords] = useState<Record<string, boolean>>({});
+  // Saved Wi-Fi networks (for the per-camera "Edit Wi-Fi" picker) + inline-edit
+  // state for renaming a camera and re-pointing its Wi-Fi.
+  const [networks, setNetworks] = useState<{ slug: string; ssid: string }[]>([]);
+  const [editingName, setEditingName] = useState<string | null>(null);
+  const [nameInput, setNameInput] = useState('');
+  const [editingWifi, setEditingWifi] = useState<string | null>(null);
+  const [wifiSlug, setWifiSlug] = useState('');
+  const [busyId, setBusyId] = useState<string | null>(null);
   // Persist the "show boxes" preference; annotated captures (external cams)
   // render red/yellow rectangles over the raw image when this is on.
   const [showBoxes, setShowBoxes] = useState(true);
@@ -144,6 +152,86 @@ export default function DashboardPage() {
     };
   }, [user]);
 
+  // Load saved Wi-Fi networks once signed in (for the Edit Wi-Fi dropdown).
+  useEffect(() => {
+    if (!user) return;
+    let active = true;
+    (async () => {
+      try {
+        const res = await authedFetch('/api/networks');
+        const data = await res.json();
+        if (active && res.ok) {
+          setNetworks((data.networks || []).map((n: any) => ({ slug: n.slug, ssid: n.ssid })));
+        }
+      } catch {
+        /* non-fatal: the picker just shows "add a network" */
+      }
+    })();
+    return () => { active = false; };
+  }, [user]);
+
+  // Rename a camera's id. The change is pushed to the board over the air (a
+  // set_id command); on its next wake it adopts the new id and reboots.
+  async function renameDevice(oldId: string) {
+    const newId = nameInput.trim();
+    if (!newId || newId === oldId) { setEditingName(null); setNameInput(''); return; }
+    if (!confirm(
+      `Rename camera "${oldId}" to "${newId}"?\n\n` +
+      `The new name is sent to the camera over the air: on its next wake it switches ` +
+      `id and reboots. Until it does, you may briefly see both the old and new names.\n\n` +
+      `Photos already saved under "${oldId}" stay under that name in storage.`
+    )) return;
+    setError('');
+    setBusyId(oldId);
+    try {
+      const res = await authedFetch(`/api/devices/${encodeURIComponent(oldId)}/rename`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ newId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Rename failed');
+      setEditingName(null);
+      setNameInput('');
+      // The next 10-s refresh surfaces the new (seeded) card and the old one
+      // marked pending until the board applies the change.
+    } catch (e: any) {
+      setError(e?.message || 'Rename failed');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  // Re-point a camera's 2.4 GHz Wi-Fi to a saved network (pushed OTA). The board
+  // auto-reverts if it can't reach the new network, so a wrong pick is recoverable.
+  async function applyWifi(deviceId: string) {
+    if (!wifiSlug) { setEditingWifi(null); return; }
+    const net = networks.find((n) => n.slug === wifiSlug);
+    if (!confirm(
+      `Point "${deviceId}" at Wi-Fi network "${net?.ssid ?? wifiSlug}"?\n\n` +
+      `The camera applies this on its next wake and reboots onto the new network. ` +
+      `If it can't connect there within a few wakes, it automatically reverts to its ` +
+      `current network.`
+    )) return;
+    setError('');
+    setBusyId(deviceId);
+    try {
+      const res = await authedFetch(`/api/devices/${encodeURIComponent(deviceId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'set_wifi', networkSlug: wifiSlug }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Wi-Fi change failed');
+      setEditingWifi(null);
+      setWifiSlug('');
+    } catch (e: any) {
+      setError(e?.message || 'Wi-Fi change failed');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function sendCommand(deviceId: string, action: string) {
     setError('');
     try {
@@ -191,6 +279,7 @@ export default function DashboardPage() {
 
   const cell: React.CSSProperties = { fontSize: 12, opacity: 0.8 };
   const tagBtn: React.CSSProperties = { fontSize: 11, padding: '2px 6px', marginLeft: 6, cursor: 'pointer' };
+  const pendingBadge: React.CSSProperties = { fontSize: 11, marginLeft: 8, padding: '1px 6px', borderRadius: 4, background: '#fef3c7', color: '#92400e' };
   // Render a "label: value (Reveal)" pair where value is masked until clicked.
   // Used for both per-camera Wi-Fi/HaLow passwords and the device secret.
   function renderSecretField(label: string, value: string | null, key: string, revealedMap: Record<string, boolean>, setRevealedMap: (m: Record<string, boolean>) => void) {
@@ -238,8 +327,35 @@ export default function DashboardPage() {
               <div key={d.deviceId} style={{ padding: 12, background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 8 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
-                    <b>{d.deviceId}</b> — {d.status === 'online' ? '🟢 online' : '⚪ ' + d.status}
-                    <span style={{ fontSize: 12, opacity: 0.7, marginLeft: 8 }}>battery {d.battery ?? '—'}%</span>
+                    {editingName === d.deviceId ? (
+                      <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                        <input
+                          value={nameInput}
+                          onChange={(e) => setNameInput(e.target.value)}
+                          placeholder="new-camera-id"
+                          style={{ fontSize: 14, padding: '2px 6px' }}
+                        />
+                        <button style={tagBtn} disabled={busyId === d.deviceId} onClick={() => renameDevice(d.deviceId)}>
+                          {busyId === d.deviceId ? 'Saving…' : 'Save'}
+                        </button>
+                        <button style={tagBtn} onClick={() => { setEditingName(null); setNameInput(''); }}>Cancel</button>
+                      </span>
+                    ) : (
+                      <>
+                        <b>{d.deviceId}</b>
+                        <button
+                          style={tagBtn}
+                          title="Rename this camera (pushed to the board over the air)"
+                          onClick={() => { setEditingName(d.deviceId); setNameInput(d.deviceId); }}
+                        >
+                          Edit name
+                        </button>
+                        {' — '}{d.status === 'online' ? '🟢 online' : '⚪ ' + d.status}
+                        <span style={{ fontSize: 12, opacity: 0.7, marginLeft: 8 }}>battery {d.battery ?? '—'}%</span>
+                        {d.command === 'set_wifi' && <span style={pendingBadge}>⏳ applying Wi-Fi…</span>}
+                        {d.command === 'set_id' && <span style={pendingBadge}>⏳ renaming…</span>}
+                      </>
+                    )}
                   </div>
                   <div>
                     <button onClick={() => sendCommand(d.deviceId, 'take_picture')} style={{ marginRight: 6 }}>
@@ -260,13 +376,36 @@ export default function DashboardPage() {
 
                   <div style={cell}>
                     <b>Wi-Fi:</b>{' '}
-                    {d.wifiSsid === null ? <i style={{ opacity: 0.7 }}>not provisioned</i> : (
+                    {editingWifi === d.deviceId ? (
+                      <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <select value={wifiSlug} onChange={(e) => setWifiSlug(e.target.value)} style={{ fontSize: 12 }}>
+                          <option value="">Choose a saved network…</option>
+                          {networks.map((n) => <option key={n.slug} value={n.slug}>{n.ssid}</option>)}
+                        </select>
+                        <button style={tagBtn} disabled={!wifiSlug || busyId === d.deviceId} onClick={() => applyWifi(d.deviceId)}>
+                          {busyId === d.deviceId ? 'Applying…' : 'Apply'}
+                        </button>
+                        <button style={tagBtn} onClick={() => { setEditingWifi(null); setWifiSlug(''); }}>Cancel</button>
+                        {networks.length === 0 && <a href="/networks" style={{ fontSize: 11, marginLeft: 6 }}>+ add a network</a>}
+                      </span>
+                    ) : (
                       <>
-                        <code style={{ fontFamily: 'ui-monospace, Menlo, monospace' }}>{d.wifiSsid}</code>
-                        {' / '}
-                        <code style={{ fontFamily: 'ui-monospace, Menlo, monospace' }}>{wifiShown ? (d.wifiPass ?? '') : '••••••••'}</code>
-                        <button style={tagBtn} onClick={() => setRevealedPasswords({ ...revealedPasswords, [wifiKey]: !wifiShown })}>
-                          {wifiShown ? 'Hide' : 'Reveal'}
+                        {d.wifiSsid === null ? <i style={{ opacity: 0.7 }}>not provisioned</i> : (
+                          <>
+                            <code style={{ fontFamily: 'ui-monospace, Menlo, monospace' }}>{d.wifiSsid}</code>
+                            {' / '}
+                            <code style={{ fontFamily: 'ui-monospace, Menlo, monospace' }}>{wifiShown ? (d.wifiPass ?? '') : '••••••••'}</code>
+                            <button style={tagBtn} onClick={() => setRevealedPasswords({ ...revealedPasswords, [wifiKey]: !wifiShown })}>
+                              {wifiShown ? 'Hide' : 'Reveal'}
+                            </button>
+                          </>
+                        )}
+                        <button
+                          style={tagBtn}
+                          title="Change which Wi-Fi network this camera uses (pushed over the air)"
+                          onClick={() => { setEditingWifi(d.deviceId); setWifiSlug(''); }}
+                        >
+                          Edit Wi-Fi
                         </button>
                       </>
                     )}
