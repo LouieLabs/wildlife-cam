@@ -88,3 +88,94 @@ bool saveDeviceConfig(const DeviceConfig &c) {
   }
   return allOk;
 }
+
+// ---------------------------------------------------------------------------
+// OTA config changes (set_wifi / set_id)
+// ---------------------------------------------------------------------------
+// Extra NVS keys for the Wi-Fi "trial" (all <= 15 chars, the NVS key limit).
+// wifi_trials  : uint8, wakes remaining to prove the new network (0 = no trial)
+// wifi_bak_ssid/pass : the previous creds, restored if the new ones never work.
+static const char *K_TRIALS   = "wifi_trials";
+static const char *K_BAK_SSID = "wifi_bak_ssid";
+static const char *K_BAK_PASS = "wifi_bak_pass";
+
+bool applyWifiChange(const String &newSsid, const String &newPass,
+                     const String &newNetMode, uint8_t trials) {
+  if (newSsid.length() == 0) return false;   // never blank out Wi-Fi via OTA
+
+  // 1) Stash the CURRENT creds as a backup + arm the trial counter. Direct NVS
+  //    (not saveDeviceConfig, which skips empty values -- we must be able to
+  //    record an empty backup password for an open home network).
+  {
+    Preferences p;
+    if (!p.begin(NVS_NS, /*readOnly=*/false)) { Serial.println("[nvs] trial begin failed"); return false; }
+    String curSsid = p.getString("wifi_ssid", "");
+    String curPass = p.getString("wifi_pass", "");
+    p.putString(K_BAK_SSID, curSsid);
+    p.putString(K_BAK_PASS, curPass);
+    p.putUChar(K_TRIALS, trials);
+    p.end();
+    Serial.printf("[wifi-trial] backup '%s' held, trying '%s' for %u wake(s)\n",
+                  curSsid.c_str(), newSsid.c_str(), trials);
+  }
+
+  // 2) Write the NEW primary creds through saveDeviceConfig (has the read-back
+  //    verification that catches a full/janky NVS partition).
+  DeviceConfig c;                 // blank fields are left as-is by saveDeviceConfig
+  c.wifiSsid = newSsid;
+  c.wifiPass = newPass;
+  c.netMode  = newNetMode;        // may be blank -> keep existing mode
+  return saveDeviceConfig(c);
+}
+
+bool wifiTrialActive() {
+  Preferences p;
+  if (!p.begin(NVS_NS, /*readOnly=*/true)) return false;
+  uint8_t t = p.getUChar(K_TRIALS, 0);
+  p.end();
+  return t > 0;
+}
+
+bool wifiTrialResolve(bool connectedOk) {
+  Preferences p;
+  if (!p.begin(NVS_NS, /*readOnly=*/false)) return false;
+  uint8_t t = p.getUChar(K_TRIALS, 0);
+  if (t == 0) { p.end(); return false; }   // no trial in progress
+
+  if (connectedOk) {
+    // New network works: commit it and drop the backup.
+    p.remove(K_TRIALS);
+    p.remove(K_BAK_SSID);
+    p.remove(K_BAK_PASS);
+    p.end();
+    Serial.println("[wifi-trial] new network confirmed -> committed");
+    return false;
+  }
+
+  // Failed to connect on this wake.
+  if (t > 1) {
+    p.putUChar(K_TRIALS, (uint8_t)(t - 1));
+    p.end();
+    Serial.printf("[wifi-trial] no connect, %u wake(s) left before revert\n", (unsigned)(t - 1));
+    return false;
+  }
+
+  // Trials exhausted -> restore the previous network.
+  String bakSsid = p.getString(K_BAK_SSID, "");
+  String bakPass = p.getString(K_BAK_PASS, "");
+  p.remove(K_TRIALS);
+  p.remove(K_BAK_SSID);
+  p.remove(K_BAK_PASS);
+  if (bakSsid.length()) p.putString("wifi_ssid", bakSsid);
+  p.putString("wifi_pass", bakPass);       // may be "" for an open network
+  p.end();
+  Serial.printf("[wifi-trial] new network unreachable -> reverted to '%s'\n", bakSsid.c_str());
+  return true;   // caller should reboot to reconnect on the restored creds
+}
+
+bool applyIdChange(const String &newId) {
+  if (newId.length() == 0) return false;
+  DeviceConfig c;                 // secret + Wi-Fi left as-is; only the id changes
+  c.deviceId = newId;
+  return saveDeviceConfig(c);
+}

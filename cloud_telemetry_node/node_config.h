@@ -63,6 +63,14 @@
 // we deep-sleep no matter what; the timer wake brings us back.
 #define MOTION_LINGER_MAX_MS 300000
 
+// --- OTA Wi-Fi change: trial before commit ----------------------------------
+// When the dashboard pushes a new Wi-Fi network (set_wifi), the board keeps the
+// OLD creds as a backup and gives the NEW network this many wakes to connect. If
+// it never does (wrong password, out of range), the firmware reverts to the old
+// network so a typo on the dashboard can't strand the camera off-grid. Each wake
+// is up to SLEEP_SECONDS apart, so 3 wakes ~= a minute-plus of retrying.
+#define WIFI_TRIAL_WAKES   3
+
 // --- Battery sense (real HT-HC33 circuit, from the datasheet) ----------------
 // Drive ADC_Ctrl HIGH to switch VBAT through a 100K/100K divider into ADC_IN,
 // so the pin reads VBAT/2. (Datasheet section 4.1.)

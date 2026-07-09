@@ -252,7 +252,22 @@ void setup() {
   }
 
   // 1) Get online. If Wi-Fi won't connect, don't waste battery -- just sleep.
-  if (!wifiConnect()) {
+  bool online = wifiConnect();
+
+  // 1.1) If a dashboard-pushed Wi-Fi change is on trial, judge it by whether we
+  //      just got online. Success commits the new network; repeated failure
+  //      restores the previous one (so a bad password can't strand the camera).
+  if (wifiTrialActive()) {
+    if (wifiTrialResolve(online)) {
+      // Just reverted to the old creds -- reboot to reconnect on them.
+      Serial.println("[wifi] reverted to previous network -> rebooting");
+      Serial.flush();
+      delay(200);
+      ESP.restart();
+    }
+  }
+
+  if (!online) {
     Serial.println("[wifi] connect failed -> sleeping");
     goToDeepSleep(SLEEP_SECONDS);
   }
@@ -289,6 +304,35 @@ void setup() {
   Serial.printf("[command] pending = %s\n", cmd.verb.c_str());
   if (cmd.verb == "take_picture") {
     doTakePicture(wakeReason);
+  } else if (cmd.verb == "set_wifi" && cmd.hasWifi) {
+    // Dashboard re-pointed our 2.4 GHz Wi-Fi. Save it (keeping the old creds as
+    // a trial backup), tell the backend we applied it (clears the command),
+    // then reboot to join the new network. If it doesn't connect within
+    // WIFI_TRIAL_WAKES wakes we auto-revert (see step 1.1).
+    Serial.printf("[command] set_wifi -> '%s' (trial %d wake(s))\n", cmd.wifiSsid.c_str(), WIFI_TRIAL_WAKES);
+    if (applyWifiChange(cmd.wifiSsid, cmd.wifiPass, cmd.wifiNetMode, WIFI_TRIAL_WAKES)) {
+      ackCommand();
+      Serial.println("[command] Wi-Fi saved -> rebooting to join new network");
+      Serial.flush();
+      delay(200);
+      ESP.restart();
+    } else {
+      Serial.println("[command] Wi-Fi save FAILED (NVS?) -> leaving network as-is");
+    }
+  } else if (cmd.verb == "set_id" && cmd.hasRename) {
+    // Dashboard renamed this camera. Write the new id (the secret is unchanged,
+    // so we stay authenticated), ack (the backend then removes the OLD
+    // registration), and reboot to report under the new id.
+    Serial.printf("[command] set_id -> '%s' (rename)\n", cmd.renameNewId.c_str());
+    if (applyIdChange(cmd.renameNewId)) {
+      ackCommand();
+      Serial.println("[command] id saved -> rebooting as new id");
+      Serial.flush();
+      delay(200);
+      ESP.restart();
+    } else {
+      Serial.println("[command] id save FAILED (NVS?) -> leaving id as-is");
+    }
   } else if (cmd.verb == "update_firmware" && cmd.hasOta) {
     // OTA runs AFTER the photo queue drained (step 2.5 above) so pending
     // photos are never lost to a firmware update. Camera has been deinit'd

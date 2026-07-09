@@ -164,6 +164,8 @@ Command getCommand() {
   Command out;
   out.verb = "idle";
   out.hasOta = false;
+  out.hasWifi = false;
+  out.hasRename = false;
 
   String url = String(BACKEND_BASE_URL) + "/api/command-poll";
   // Match the transport to the URL scheme (deployed backend is https://, a
@@ -211,8 +213,48 @@ Command getCommand() {
     } else {
       Serial.println("[command] update_firmware without ota object -> ignoring");
     }
+  } else if (out.verb == "set_wifi") {
+    // { "command":"set_wifi", "wifi":{ "ssid","pass","netMode" } }
+    String wifiObj = jsonSubObject(resp, "wifi");
+    if (wifiObj.length()) {
+      out.wifiSsid    = jsonStringField(wifiObj, "ssid");
+      out.wifiPass    = jsonStringField(wifiObj, "pass");
+      out.wifiNetMode = jsonStringField(wifiObj, "netMode");
+      out.hasWifi = out.wifiSsid.length() > 0;   // pass may be "" (open network)
+      if (!out.hasWifi) Serial.println("[command] set_wifi payload missing ssid -> ignoring");
+    } else {
+      Serial.println("[command] set_wifi without wifi object -> ignoring");
+    }
+  } else if (out.verb == "set_id") {
+    // { "command":"set_id", "rename":{ "newId" } }
+    String renameObj = jsonSubObject(resp, "rename");
+    if (renameObj.length()) {
+      out.renameNewId = jsonStringField(renameObj, "newId");
+      out.hasRename = out.renameNewId.length() > 0;
+      if (!out.hasRename) Serial.println("[command] set_id payload missing newId -> ignoring");
+    } else {
+      Serial.println("[command] set_id without rename object -> ignoring");
+    }
   }
   return out;
+}
+
+// POST /api/command-ack -- tell the backend we applied a one-shot command.
+bool ackCommand() {
+  String url = String(BACKEND_BASE_URL) + "/api/command-ack";
+  bool secure = url.startsWith("https:");
+  WiFiClient plain;
+  WiFiClientSecure tls;
+  if (secure) tls.setInsecure();   // skip cert check (testing); see README
+  HTTPClient http;
+  if (!http.begin(secure ? (WiFiClient &)tls : (WiFiClient &)plain, url)) return false;
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("x-device-secret", g_cfg.deviceSecret);
+  String reqBody = String("{\"deviceId\":\"") + g_cfg.deviceId + "\"}";
+  int code = http.POST(reqBody);
+  http.end();
+  Serial.printf("[command] ack HTTP %d\n", code);
+  return code == 200;
 }
 
 // ---------------------------------------------------------------------------
