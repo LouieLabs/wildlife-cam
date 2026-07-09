@@ -39,6 +39,30 @@
 //   * 30  -> your normal setting
 #define SLEEP_SECONDS    30
 
+// --- Motion linger: stay awake after motion (don't sleep between triggers) ---
+// A MOTION wake normally captures once and deep-sleeps immediately. But deep
+// sleep drops Wi-Fi, so the NEXT motion event pays the full Wi-Fi reconnect
+// (several seconds) before it can shoot -- long enough to miss the animal. So
+// after a motion capture we stay awake with Wi-Fi still up and watch the PIR
+// directly: fresh motion shoots right away with no reconnect, and each motion
+// resets the timer so we keep watching as long as something is around. We only
+// deep-sleep after the PIR has been quiet this many ms.
+//   * This is the single-threaded version of the MOTION/LULL states in
+//     docs/pir-capture-pipeline-plan.md.
+//   * Trade-off: Wi-Fi stays on during the window, so bigger = fewer missed
+//     shots but more battery. 30 s is a reasonable field start; tune per site.
+#define MOTION_LINGER_MS     30000
+// Minimum gap between captures while lingering, so an animal parked in front of
+// the sensor doesn't machine-gun the camera (wasting battery + storage).
+#define MOTION_MIN_GAP_MS     8000
+// How often to poll the PIR pin while lingering.
+#define MOTION_POLL_MS         200
+// Absolute ceiling on one linger window, regardless of motion. A PIR that sticks
+// HIGH (a known failure mode -- see pir_wake.cpp) would otherwise refresh the
+// quiet timer forever and hold the board awake, draining the battery. After this
+// we deep-sleep no matter what; the timer wake brings us back.
+#define MOTION_LINGER_MAX_MS 300000
+
 // --- Battery sense (real HT-HC33 circuit, from the datasheet) ----------------
 // Drive ADC_Ctrl HIGH to switch VBAT through a 100K/100K divider into ADC_IN,
 // so the pin reads VBAT/2. (Datasheet section 4.1.)

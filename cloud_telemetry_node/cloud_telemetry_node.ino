@@ -162,6 +162,41 @@ static void captureSaveUpload(const char *reason) {
   uploadPendingPhotos();
 }
 
+// After a MOTION wake we would normally shoot once and deep-sleep immediately.
+// But deep sleep drops Wi-Fi, and the next motion event then pays the full
+// reconnect cost (several seconds) before it can shoot -- long enough to miss a
+// moving animal. So when motion woke us, stay awake with Wi-Fi still up and
+// watch the PIR directly. Fresh motion captures right away (no reconnect); each
+// motion also resets the timer, so we keep watching as long as something is
+// around. We fall through to deep sleep only after MOTION_LINGER_MS of quiet.
+// This is the single-threaded version of the MOTION/LULL states in
+// docs/pir-capture-pipeline-plan.md.
+static void lingerForMotion() {
+  Serial.printf("[linger] motion wake -> staying awake, Wi-Fi up, watching PIR "
+                "(sleep after %d ms quiet)\n", MOTION_LINGER_MS);
+  uint32_t startMs       = millis();
+  uint32_t lastMotionMs  = millis();
+  uint32_t lastCaptureMs = millis();   // we just captured before entering
+  // Stop on quiet (MOTION_LINGER_MS since last motion) OR the absolute ceiling
+  // (guards against a stuck-HIGH PIR pinning us awake and draining the battery).
+  while (millis() - lastMotionMs < MOTION_LINGER_MS &&
+         millis() - startMs      < MOTION_LINGER_MAX_MS) {
+    if (digitalRead(PIR_PIN) == HIGH) {
+      lastMotionMs = millis();         // keep the window open while motion lasts
+      // Rate-limit captures so an animal parked in front of the sensor doesn't
+      // machine-gun the camera (battery + storage).
+      if (millis() - lastCaptureMs >= MOTION_MIN_GAP_MS) {
+        Serial.println("[linger] motion again -> capture (no reconnect)");
+        if (WiFi.status() != WL_CONNECTED) wifiConnect();  // recover an AP hiccup
+        captureSaveUpload("PIR");
+        lastCaptureMs = millis();
+      }
+    }
+    delay(MOTION_POLL_MS);
+  }
+  Serial.println("[linger] quiet -> deep sleep");
+}
+
 void setup() {
   Serial.begin(115200);
   delay(300);
@@ -285,6 +320,11 @@ void setup() {
     reportStatus(rpt2);
     Serial.printf("[ota] result: %s\n", otaResultString(result));
   }
+
+  // 3.5) If motion woke us, don't sleep yet. Stay awake with Wi-Fi up and watch
+  //      the PIR so repeated motion is caught instantly instead of paying a
+  //      fresh Wi-Fi reconnect on every wake. Returns once things go quiet.
+  if (motionWake) lingerForMotion();
 
   // 4) Back to sleep.
   goToDeepSleep(SLEEP_SECONDS);
