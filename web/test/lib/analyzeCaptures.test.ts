@@ -39,14 +39,10 @@ function fakeJpeg(width = 640, height = 480): Buffer {
   ]);
 }
 
-// A VertexAI stand-in whose model returns the given JSON text.
-function fakeVertex(jsonText: string) {
+// A @google/genai client stand-in whose model returns the given text.
+function fakeVertex(text: string) {
   return {
-    getGenerativeModel: () => ({
-      generateContent: async () => ({
-        response: { candidates: [{ content: { parts: [{ text: jsonText }] } }] },
-      }),
-    }),
+    models: { generateContent: async () => ({ text }) },
   } as any;
 }
 
@@ -134,17 +130,23 @@ describe('detectWithGemini', () => {
   it('retries once on a transient Vertex error, then succeeds', async () => {
     let calls = 0;
     const vertex = {
-      getGenerativeModel: () => ({
+      models: {
         generateContent: async () => {
           calls++;
           if (calls === 1) throw new Error('503 backend unavailable');
-          return { response: { candidates: [{ content: { parts: [{ text: '[]' }] } }] } };
+          return { text: '[]' };
         },
-      }),
+      },
     } as any;
     const { detections } = await detectWithGemini(fakeJpeg(), vertex);
     expect(calls).toBe(2);
     expect(detections).toEqual([]);
+  });
+
+  it('treats an empty model response as "no detections" (not an error)', async () => {
+    const { detections, containsPersonOrDog } = await detectWithGemini(fakeJpeg(), fakeVertex(''));
+    expect(detections).toEqual([]);
+    expect(containsPersonOrDog).toBe(false);
   });
 });
 

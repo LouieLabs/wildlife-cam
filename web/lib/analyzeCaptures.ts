@@ -7,9 +7,10 @@
 // names and draws the boxes.
 //
 // Security model (why there are NO API keys anywhere):
-// - Gemini is called through **Vertex AI**, which authenticates with the same
-//   keyless service-account credentials (ADC) the rest of this backend already
-//   uses for Storage/Firestore. Nothing to leak, rotate, or hand to students.
+// - Gemini is called through **Vertex AI** (via the @google/genai SDK in
+//   vertexai mode), which authenticates with the same keyless service-account
+//   credentials (ADC) the rest of this backend already uses for
+//   Storage/Firestore. Nothing to leak, rotate, or hand to students.
 // - Analysis is triggered by an authed dashboard route (see
 //   app/api/analyze-pending/route.ts), not by any outside caller.
 //
@@ -21,7 +22,7 @@
 // before/alongside Gemini, and eventually a tiny on-device model gates uploads.
 
 import { Storage } from '@google-cloud/storage';
-import { VertexAI } from '@google-cloud/vertexai';
+import { GoogleGenAI } from '@google/genai';
 import { adminFirestore } from './firebaseAdmin';
 
 const COLLECTION = 'wildlife_detections';
@@ -135,18 +136,23 @@ function keepDetection(label: string, confidence: number | null): boolean {
   return confidence === null || confidence >= MIN_CONFIDENCE;
 }
 
+// Minimal shape of the genai client we use — lets tests inject a fake without
+// standing up the real GoogleGenAI.
+export type GenAIClient = { models: { generateContent: (req: any) => Promise<{ text?: string }> } };
+
 // One Gemini call for one image, with a retry on transient failures. Exported
-// for testing; not called outside this module.
+// for testing; not called outside this module. Uses the current @google/genai
+// SDK in Vertex mode (keyless ADC) — the old @google-cloud/vertexai SDK is EOL
+// (removed June 2026) and was returning empty/degenerate responses.
 export async function detectWithGemini(
   jpeg: Buffer,
-  vertex?: VertexAI
+  client?: GenAIClient
 ): Promise<{ detections: WireDetection[]; boxes: DrawnBox[]; containsPersonOrDog: boolean }> {
-  const ai = vertex ?? new VertexAI({ project: PROJECT, location: LOCATION });
-  const model = ai.getGenerativeModel({
-    model: MODEL,
-    generationConfig: { temperature: 0, responseMimeType: 'application/json' },
-  });
+  const ai: GenAIClient =
+    client ?? (new GoogleGenAI({ vertexai: true, project: PROJECT, location: LOCATION }) as unknown as GenAIClient);
+
   const request = {
+    model: MODEL,
     contents: [{
       role: 'user',
       parts: [
@@ -154,27 +160,36 @@ export async function detectWithGemini(
         { text: PROMPT },
       ],
     }],
+    config: { temperature: 0, responseMimeType: 'application/json' },
   };
 
-  let res;
+  let res: { text?: string } | undefined;
   let lastErr: unknown;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
-      res = await model.generateContent(request);
+      res = await ai.models.generateContent(request);
       break;
     } catch (err) {
       lastErr = err;
       if (attempt < MAX_ATTEMPTS) await new Promise((r) => setTimeout(r, 600 * attempt));
     }
   }
-  if (!res) throw lastErr instanceof Error ? lastErr : new Error('Vertex call failed');
+  if (!res) throw lastErr instanceof Error ? lastErr : new Error('Gemini call failed');
 
-  const text = res.response.candidates?.[0]?.content?.parts?.[0]?.text ?? '[]';
+  const text = (res.text ?? '').trim();
   let raw: unknown;
-  try {
-    raw = JSON.parse(stripFences(text));
-  } catch {
-    throw new Error(`Gemini returned non-JSON: ${text.slice(0, 120)}`);
+  if (text === '') {
+    // An empty response means "nothing detected" — treat as a clean empty scene
+    // rather than an error, so the capture is marked analyzed and not retried
+    // forever. (The old EOL SDK returned empty on flaky calls; the new one is
+    // reliable, so a real empty here is a genuine no-op frame.)
+    raw = [];
+  } else {
+    try {
+      raw = JSON.parse(stripFences(text));
+    } catch {
+      throw new Error(`Gemini returned non-JSON: ${text.slice(0, 120)}`);
+    }
   }
   if (!Array.isArray(raw)) raw = [];
 
@@ -224,7 +239,7 @@ export async function detectWithGemini(
 // Pick up to `limit` unanalyzed captures, run Gemini on each, update in place.
 // Each doc is independent: one failure doesn't sink the batch, and a failed
 // doc simply stays analyzed:false for the next round.
-export async function analyzePendingCaptures(limit = 5, vertex?: VertexAI): Promise<AnalyzeResult> {
+export async function analyzePendingCaptures(limit = 5, client?: GenAIClient): Promise<AnalyzeResult> {
   // where()+limit() only (no orderBy) so no composite index is required.
   const snap = await adminFirestore
     .collection(COLLECTION)
@@ -239,7 +254,7 @@ export async function analyzePendingCaptures(limit = 5, vertex?: VertexAI): Prom
     if (!data.objectPath) continue; // can never be analyzed; leave for cleanup
     try {
       const [jpeg] = await storage.bucket(BUCKET).file(data.objectPath).download();
-      const { detections, boxes, containsPersonOrDog } = await detectWithGemini(jpeg, vertex);
+      const { detections, boxes, containsPersonOrDog } = await detectWithGemini(jpeg, client);
       // Use the model's RAW person/dog signal, not the (confidence-filtered)
       // saved list — a faint person that was dropped from `detections` must
       // still keep the capture private. Fail-safe toward privacy.
