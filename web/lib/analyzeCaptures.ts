@@ -32,6 +32,16 @@ const PROJECT = process.env.GCP_PROJECT_ID || 'louielabs-animal-cams';
 const LOCATION = process.env.VERTEX_LOCATION || 'us-central1';
 const MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 
+// Drop animal detections below this confidence from the SAVED list — keeps the
+// dashboard clear of the model's low-conviction guesses. Person/dog are EXEMPT
+// from this floor (see keepDetection): a faint "maybe a person" must still
+// count, because it drives the privacy gate. Tunable without a redeploy.
+const MIN_CONFIDENCE = Number(process.env.DETECTION_MIN_CONFIDENCE ?? '0.3');
+
+// One retry on a transient Vertex hiccup (429/503/socket). Cheap insurance so a
+// single blip doesn't leave a photo stuck "pending" until the next dashboard tick.
+const MAX_ATTEMPTS = 2;
+
 const storage = new Storage({ projectId: PROJECT });
 
 export type WireDetection = { label: string; confidence: number | null; box: number[] | null };
@@ -70,28 +80,73 @@ export function jpegDimensions(buf: Buffer): { width: number; height: number } |
   return null;
 }
 
+// Region hint — biases the model toward species that actually occur here
+// (the cameras are in the Santa Cruz Mountains, CA). Overridable per-deploy for
+// other sites without touching code.
+const REGION_SPECIES =
+  process.env.REGION_SPECIES ||
+  'mule deer, coyote, bobcat, mountain lion, raccoon, gray fox, striped skunk, ' +
+  'opossum, wild turkey, gray squirrel, rat, domestic dog, domestic cat';
+
 // What we ask Gemini for. box_2d in [ymin, xmin, ymax, xmax] normalized to
 // 0-1000 is the convention Gemini's detection training uses — asking in its
-// native format gets far more reliable boxes than inventing our own.
-const PROMPT = `You are analyzing a wildlife camera-trap photo (may be daytime, night IR, or low quality).
-List every animal, person, and vehicle you can see. Respond with ONLY a JSON array, no prose:
-[{"label": "<species or 'person' or 'vehicle'>", "confidence": <0..1>, "box_2d": [ymin, xmin, ymax, xmax]}]
-box_2d values are integers 0-1000 normalized to the image. Use specific species when you can
-(e.g. "mule deer", "coyote", "raccoon", "bobcat"); use "animal" if unsure of species.
-If the image shows no animals/people/vehicles, respond with [].`;
+// native format gets far more reliable boxes than inventing our own. The prompt
+// is tuned for the real failure modes of camera-trap frames: night infrared
+// (grayscale), motion blur, partial animals at the frame edge, and — most
+// important — false positives on empty scenes (a swaying branch is NOT a deer).
+const PROMPT = `You are an expert wildlife biologist reviewing a motion-triggered CAMERA-TRAP photo.
 
-// One Gemini call for one image. Exported for testing; not called outside.
+The image may be:
+- night INFRARED / black-and-white (glowing eyes, washed-out fur — still identify the animal)
+- motion-blurred, grainy, or badly lit
+- showing only PART of an animal at the frame edge
+
+Report every distinct animal, person, or vehicle. For each, give a bounding box.
+Likely species at this location: ${REGION_SPECIES}. Prefer these when the image supports it,
+but do NOT force a match — report what you actually see.
+
+Rules:
+- Use a specific species label when you are reasonably sure (e.g. "mule deer", "raccoon").
+  Use "animal" only when you truly cannot tell.
+- Label a human as "person" and a dog as "dog" (these drive a privacy filter).
+- confidence is your genuine 0..1 certainty. Be HONEST and conservative — it is
+  far better to return [] than to hallucinate an animal in an empty frame. Vegetation,
+  shadows, rain streaks, timestamps, and IR glare are NOT animals.
+
+Respond with ONLY a JSON array, no prose, no markdown:
+[{"label": "<species|person|vehicle|animal>", "confidence": <0..1>, "box_2d": [ymin, xmin, ymax, xmax]}]
+box_2d are integers 0-1000 normalized to the image (top-left origin).
+If there is no animal, person, or vehicle, respond with exactly: []`;
+
+const isPersonOrDog = (label: string) => /\b(person|people|human|dog)\b/i.test(label);
+
+// Gemini can wrap JSON in ```json fences despite responseMimeType — strip them
+// before parsing so one stray fence doesn't fail an otherwise-good response.
+function stripFences(t: string): string {
+  return t.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+}
+
+// Should this detection survive into the saved list? Animals must clear the
+// confidence floor; person/dog ALWAYS survive (even a faint one), because they
+// drive the privacy gate and a missed person is a privacy leak, not just a
+// missed label. A null confidence (model omitted it) is kept — unknown ≠ low.
+function keepDetection(label: string, confidence: number | null): boolean {
+  if (isPersonOrDog(label)) return true;
+  return confidence === null || confidence >= MIN_CONFIDENCE;
+}
+
+// One Gemini call for one image, with a retry on transient failures. Exported
+// for testing; not called outside this module.
 export async function detectWithGemini(
   jpeg: Buffer,
   vertex?: VertexAI
-): Promise<{ detections: WireDetection[]; boxes: DrawnBox[] }> {
+): Promise<{ detections: WireDetection[]; boxes: DrawnBox[]; containsPersonOrDog: boolean }> {
   const ai = vertex ?? new VertexAI({ project: PROJECT, location: LOCATION });
   const model = ai.getGenerativeModel({
     model: MODEL,
     generationConfig: { temperature: 0, responseMimeType: 'application/json' },
   });
-
-  const res = await model.generateContent({
+  const request = {
     contents: [{
       role: 'user',
       parts: [
@@ -99,12 +154,25 @@ export async function detectWithGemini(
         { text: PROMPT },
       ],
     }],
-  });
+  };
+
+  let res;
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      res = await model.generateContent(request);
+      break;
+    } catch (err) {
+      lastErr = err;
+      if (attempt < MAX_ATTEMPTS) await new Promise((r) => setTimeout(r, 600 * attempt));
+    }
+  }
+  if (!res) throw lastErr instanceof Error ? lastErr : new Error('Vertex call failed');
 
   const text = res.response.candidates?.[0]?.content?.parts?.[0]?.text ?? '[]';
   let raw: unknown;
   try {
-    raw = JSON.parse(text);
+    raw = JSON.parse(stripFences(text));
   } catch {
     throw new Error(`Gemini returned non-JSON: ${text.slice(0, 120)}`);
   }
@@ -113,11 +181,17 @@ export async function detectWithGemini(
   const dims = jpegDimensions(jpeg);
   const detections: WireDetection[] = [];
   const boxes: DrawnBox[] = [];
+  // Privacy gate is computed from the RAW model output (before the confidence
+  // floor), so a low-confidence person still forces the capture private.
+  let containsPersonOrDog = false;
 
   for (const d of raw as any[]) {
     if (!d || typeof d.label !== 'string' || !d.label.trim()) continue;
     const label = d.label.trim().slice(0, 80);
+    if (isPersonOrDog(label)) containsPersonOrDog = true;
+
     const confidence = typeof d.confidence === 'number' ? Math.min(1, Math.max(0, d.confidence)) : null;
+    if (!keepDetection(label, confidence)) continue; // low-confidence animal guess — drop
 
     // Convert Gemini's [ymin,xmin,ymax,xmax]/1000 into the dashboard's pixel
     // [x, y, w, h]. Without dimensions we keep the label but drop the box.
@@ -144,7 +218,7 @@ export async function detectWithGemini(
     if (detections.length >= 20) break; // sanity cap
   }
 
-  return { detections, boxes };
+  return { detections, boxes, containsPersonOrDog };
 }
 
 // Pick up to `limit` unanalyzed captures, run Gemini on each, update in place.
@@ -165,8 +239,11 @@ export async function analyzePendingCaptures(limit = 5, vertex?: VertexAI): Prom
     if (!data.objectPath) continue; // can never be analyzed; leave for cleanup
     try {
       const [jpeg] = await storage.bucket(BUCKET).file(data.objectPath).download();
-      const { detections, boxes } = await detectWithGemini(jpeg, vertex);
-      const isPublic = !hasPersonOrDog(detections.map((d) => d.label));
+      const { detections, boxes, containsPersonOrDog } = await detectWithGemini(jpeg, vertex);
+      // Use the model's RAW person/dog signal, not the (confidence-filtered)
+      // saved list — a faint person that was dropped from `detections` must
+      // still keep the capture private. Fail-safe toward privacy.
+      const isPublic = !containsPersonOrDog;
 
       const update: Record<string, unknown> = {
         detections,

@@ -95,14 +95,56 @@ describe('detectWithGemini', () => {
       { label: '' },
       { notALabel: 1 },
     ]));
-    const { detections, boxes } = await detectWithGemini(fakeJpeg(), vertex);
+    const { detections, boxes, containsPersonOrDog } = await detectWithGemini(fakeJpeg(), vertex);
     expect(detections).toEqual([]);
     expect(boxes).toEqual([]);
+    expect(containsPersonOrDog).toBe(false);
   });
 
   it('throws a clear error on non-JSON model output', async () => {
     await expect(detectWithGemini(fakeJpeg(), fakeVertex('sorry, I cannot')))
       .rejects.toThrow(/non-JSON/);
+  });
+
+  it('tolerates ```json markdown fences around the array', async () => {
+    const fenced = '```json\n[{"label":"coyote","confidence":0.7,"box_2d":[0,0,100,100]}]\n```';
+    const { detections } = await detectWithGemini(fakeJpeg(), fakeVertex(fenced));
+    expect(detections).toEqual([expect.objectContaining({ label: 'coyote' })]);
+  });
+
+  it('drops low-confidence ANIMAL guesses below the floor (0.3)', async () => {
+    const vertex = fakeVertex(JSON.stringify([
+      { label: 'mule deer', confidence: 0.9, box_2d: [0, 0, 100, 100] },
+      { label: 'bobcat', confidence: 0.1, box_2d: [0, 0, 100, 100] }, // below floor -> dropped
+    ]));
+    const { detections } = await detectWithGemini(fakeJpeg(), vertex);
+    expect(detections.map((d) => d.label)).toEqual(['mule deer']);
+  });
+
+  it('FAIL-SAFE: a faint person is exempt from the floor AND trips the gate', async () => {
+    const vertex = fakeVertex(JSON.stringify([
+      { label: 'person', confidence: 0.08 }, // faint — but privacy-relevant
+      { label: 'raccoon', confidence: 0.9, box_2d: [0, 0, 100, 100] },
+    ]));
+    const { detections, containsPersonOrDog } = await detectWithGemini(fakeJpeg(), vertex);
+    expect(detections.map((d) => d.label).sort()).toEqual(['person', 'raccoon']);
+    expect(containsPersonOrDog).toBe(true);
+  });
+
+  it('retries once on a transient Vertex error, then succeeds', async () => {
+    let calls = 0;
+    const vertex = {
+      getGenerativeModel: () => ({
+        generateContent: async () => {
+          calls++;
+          if (calls === 1) throw new Error('503 backend unavailable');
+          return { response: { candidates: [{ content: { parts: [{ text: '[]' }] } }] } };
+        },
+      }),
+    } as any;
+    const { detections } = await detectWithGemini(fakeJpeg(), vertex);
+    expect(calls).toBe(2);
+    expect(detections).toEqual([]);
   });
 });
 
