@@ -62,8 +62,13 @@ steps:
       - |
         set -eu
         apt-get update -qq
+        # python3-serial (pyserial) is REQUIRED: the Heltec core's post-compile
+        # recipe runs esptool.py to turn the .elf into a .bin, and esptool.py
+        # imports `serial` at module load even for the offline elf2image step.
+        # Without it the compile dies with "ModuleNotFoundError: No module named
+        # 'serial'" and aborts the whole build (so the web deploy never runs).
         apt-get install -y -qq --no-install-recommends \
-          ca-certificates curl git python3 xz-utils
+          ca-certificates curl git python3 python3-serial xz-utils
         curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh \
           | BINDIR=/usr/local/bin sh
         arduino-cli version
