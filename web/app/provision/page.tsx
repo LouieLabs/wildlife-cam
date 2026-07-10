@@ -326,6 +326,10 @@ export default function ProvisionPage() {
 
   return (
     <main style={{ fontFamily: 'system-ui', maxWidth: 640, margin: '40px auto', padding: 16 }}>
+      <nav style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        <a href="/" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, textDecoration: 'none', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 8, padding: '6px 10px', fontSize: 13, background: '#fff' }}>← Home</a>
+        <a href="/dashboard" style={{ display: 'inline-flex', alignItems: 'center', textDecoration: 'none', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 8, padding: '6px 10px', fontSize: 13, background: '#fff' }}>Dashboard</a>
+      </nav>
       <h2>Set up a camera</h2>
       <p style={{ color: '#555' }}>
         Plug the camera into this computer over USB. Two steps: install the firmware
