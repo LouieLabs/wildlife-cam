@@ -1,7 +1,37 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { onAuthStateChanged, type User } from 'firebase/auth';
+import Link from 'next/link';
+import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
 import { clientAuth } from '@/lib/firebaseClient';
+
+// ---- shared UI tokens (a tiny design system so the page reads as one thing) --
+const ui = {
+  green: '#15803d',
+  slate: '#475569',
+  border: '#e2e8f0',
+  cardBg: '#ffffff',
+  danger: '#b91c1c',
+} as const;
+
+const card: React.CSSProperties = {
+  padding: 16,
+  background: ui.cardBg,
+  border: `1px solid ${ui.border}`,
+  borderRadius: 12,
+  boxShadow: '0 1px 2px rgba(15,23,42,0.04)',
+};
+const btnPrimary: React.CSSProperties = {
+  background: ui.green, color: '#fff', border: 'none', borderRadius: 8,
+  padding: '7px 12px', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+};
+const btnGhost: React.CSSProperties = {
+  background: '#fff', color: ui.slate, border: `1px solid ${ui.border}`,
+  borderRadius: 8, padding: '6px 10px', fontSize: 13, cursor: 'pointer',
+};
+const btnDanger: React.CSSProperties = {
+  background: 'none', color: ui.danger, border: 'none', fontSize: 13,
+  cursor: 'pointer', padding: '6px 4px',
+};
 
 type Device = {
   deviceId: string;
@@ -26,6 +56,7 @@ type Detection = {
   deviceId: string;
   imageUrl: string | null;
   capturedAt: number;
+  analyzed?: boolean;  // false = still waiting for the AI; true = the AI has run
   detections: { label?: string; confidence?: number; box?: number[] }[];
   boxes?: DrawnBox[];  // human-annotated boxes from external cameras (trail cams etc.)
 };
@@ -280,6 +311,7 @@ export default function DashboardPage() {
   const cell: React.CSSProperties = { fontSize: 12, opacity: 0.8 };
   const tagBtn: React.CSSProperties = { fontSize: 11, padding: '2px 6px', marginLeft: 6, cursor: 'pointer' };
   const pendingBadge: React.CSSProperties = { fontSize: 11, marginLeft: 8, padding: '1px 6px', borderRadius: 4, background: '#fef3c7', color: '#92400e' };
+  const analyzingBadge: React.CSSProperties = { fontSize: 12, padding: '1px 8px', borderRadius: 4, background: '#e0e7ff', color: '#3730a3' };
   // Render a "label: value (Reveal)" pair where value is masked until clicked.
   // Used for both per-camera Wi-Fi/HaLow passwords and the device secret.
   function renderSecretField(label: string, value: string | null, key: string, revealedMap: Record<string, boolean>, setRevealedMap: (m: Record<string, boolean>) => void) {
@@ -301,18 +333,45 @@ export default function DashboardPage() {
   }
 
   return (
-    <main style={{ maxWidth: 820, margin: '0 auto', padding: 24 }}>
-      <h1>Live dashboard</h1>
-      <nav style={{ display: 'flex', gap: 14, fontSize: 14, margin: '4px 0 16px', color: '#475569' }}>
-        <a href="/provision">Set up a camera</a>
-        <a href="/networks">Saved Wi-Fi networks</a>
-      </nav>
-      {error && <p style={{ color: '#f87171' }}>{error}</p>}
+    <div style={{ minHeight: '100vh' }}>
+      {/* Sticky app bar: back to home, title, quick nav, who's signed in + sign out */}
+      <header
+        style={{
+          position: 'sticky', top: 0, zIndex: 10,
+          display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap',
+          padding: '12px 24px', background: '#ffffff',
+          borderBottom: `1px solid ${ui.border}`,
+        }}
+      >
+        <Link href="/" style={{ ...btnGhost, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          ← Home
+        </Link>
+        <span style={{ fontWeight: 700, fontSize: 17 }}>🦝 Wildlife Monitor</span>
+        <nav style={{ display: 'flex', gap: 16, fontSize: 14, color: ui.slate }}>
+          <Link href="/provision" style={{ color: ui.slate }}>Set up a camera</Link>
+          <Link href="/networks" style={{ color: ui.slate }}>Wi-Fi networks</Link>
+        </nav>
+        <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 10, fontSize: 13, color: ui.slate }}>
+          <span style={{ opacity: 0.8 }}>{user.email}</span>
+          <button style={btnGhost} onClick={() => signOut(clientAuth)}>Sign out</button>
+        </span>
+      </header>
 
-      <h2 style={{ fontSize: 18 }}>Cameras</h2>
-      {devices.length === 0 ? (
-        <p>No cameras registered yet.</p>
-      ) : (
+      <main style={{ maxWidth: 860, margin: '0 auto', padding: 24 }}>
+        <h1 style={{ fontSize: 24, margin: '4px 0 4px' }}>Live dashboard</h1>
+        <p style={{ marginTop: 0, color: ui.slate, fontSize: 14 }}>
+          Your cameras and the animals the AI spotted.
+        </p>
+        {error && (
+          <p style={{ color: ui.danger, background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '8px 12px' }}>
+            {error}
+          </p>
+        )}
+
+        <h2 style={{ fontSize: 18 }}>Cameras</h2>
+        {devices.length === 0 ? (
+          <p style={{ color: ui.slate }}>No cameras registered yet. <Link href="/provision">Set one up →</Link></p>
+        ) : (
         <div style={{ display: 'grid', gap: 12 }}>
           {devices.map((d) => {
             // For Wi-Fi we show both SSID + password (rendered together so they
@@ -324,8 +383,8 @@ export default function DashboardPage() {
             const wifiShown = !!revealedPasswords[wifiKey];
             const halowShown = !!revealedPasswords[halowKey];
             return (
-              <div key={d.deviceId} style={{ padding: 12, background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 8 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div key={d.deviceId} style={card}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <div>
                     {editingName === d.deviceId ? (
                       <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
@@ -357,13 +416,13 @@ export default function DashboardPage() {
                       </>
                     )}
                   </div>
-                  <div>
-                    <button onClick={() => sendCommand(d.deviceId, 'take_picture')} style={{ marginRight: 6 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <button onClick={() => sendCommand(d.deviceId, 'take_picture')} style={btnPrimary}>
                       📸 Take picture
                     </button>
                     <button
                       onClick={() => deleteDevice(d.deviceId)}
-                      style={{ color: '#c0392b', fontSize: 13, cursor: 'pointer' }}
+                      style={btnDanger}
                       title="Remove camera from the dashboard. GCS photos are preserved."
                     >
                       Delete
@@ -448,25 +507,39 @@ export default function DashboardPage() {
         <div style={{ display: 'grid', gap: 12 }}>
           {detections.map((det) => {
             const drawn = det.boxes ?? [];
-            const summary =
-              drawn.length > 0
-                ? `${drawn.filter((b) => b.class === 'animal').length} animal` +
-                  ` · ${drawn.filter((b) => b.class === 'human').length} human`
-                : det.detections.length === 0
-                ? 'no animals'
-                : det.detections
-                    .map((x) => `${x.label ?? '?'} (${Math.round((x.confidence ?? 0) * 100)}%)`)
-                    .join(', ');
+            const labels = det.detections ?? [];
+            // Prefer the model's per-label list (has species + confidence); fall
+            // back to the drawn-box counts (external/annotated captures). The
+            // key new distinction: analyzed:false → still "analyzing…", NOT the
+            // same as "analyzed and found nothing".
+            let summary: React.ReactNode;
+            if (labels.length > 0) {
+              summary = labels
+                .map((x) => `${x.label ?? '?'} (${Math.round((x.confidence ?? 0) * 100)}%)`)
+                .join(', ');
+            } else if (drawn.length > 0) {
+              const parts = [
+                drawn.filter((b) => b.class === 'animal').length,
+                drawn.filter((b) => b.class === 'human').length,
+              ];
+              summary = [`${parts[0]} animal`, `${parts[1]} human`]
+                .filter((_, i) => parts[i] > 0)
+                .join(' · ') || 'nothing';
+            } else if (det.analyzed) {
+              summary = <span style={{ opacity: 0.6 }}>no animals</span>;
+            } else {
+              summary = <span style={analyzingBadge}>⏳ analyzing…</span>;
+            }
             return (
-              <div key={det.id} style={{ padding: 12, background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 8 }}>
+              <div key={det.id} style={card}>
                 <b>{det.deviceId}</b>{' '}
                 <span style={{ fontSize: 12, opacity: 0.7 }}>
                   {new Date(det.capturedAt).toLocaleString()}
                 </span>
-                <div>{summary}</div>
+                <div style={{ marginTop: 2, fontSize: 15 }}>{summary}</div>
                 {det.imageUrl && <CaptureImage det={det} showBoxes={showBoxes} />}
                 {det.imageUrl && (
-                  <a href={det.imageUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>
+                  <a href={det.imageUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: ui.slate }}>
                     view full image
                   </a>
                 )}
@@ -475,6 +548,7 @@ export default function DashboardPage() {
           })}
         </div>
       )}
-    </main>
+      </main>
+    </div>
   );
 }
