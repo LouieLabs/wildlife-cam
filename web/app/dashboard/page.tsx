@@ -26,6 +26,7 @@ type Detection = {
   deviceId: string;
   imageUrl: string | null;
   capturedAt: number;
+  analyzed?: boolean;  // false = still waiting for the AI; true = the AI has run
   detections: { label?: string; confidence?: number; box?: number[] }[];
   boxes?: DrawnBox[];  // human-annotated boxes from external cameras (trail cams etc.)
 };
@@ -280,6 +281,7 @@ export default function DashboardPage() {
   const cell: React.CSSProperties = { fontSize: 12, opacity: 0.8 };
   const tagBtn: React.CSSProperties = { fontSize: 11, padding: '2px 6px', marginLeft: 6, cursor: 'pointer' };
   const pendingBadge: React.CSSProperties = { fontSize: 11, marginLeft: 8, padding: '1px 6px', borderRadius: 4, background: '#fef3c7', color: '#92400e' };
+  const analyzingBadge: React.CSSProperties = { fontSize: 12, padding: '1px 8px', borderRadius: 4, background: '#e0e7ff', color: '#3730a3' };
   // Render a "label: value (Reveal)" pair where value is masked until clicked.
   // Used for both per-camera Wi-Fi/HaLow passwords and the device secret.
   function renderSecretField(label: string, value: string | null, key: string, revealedMap: Record<string, boolean>, setRevealedMap: (m: Record<string, boolean>) => void) {
@@ -448,15 +450,29 @@ export default function DashboardPage() {
         <div style={{ display: 'grid', gap: 12 }}>
           {detections.map((det) => {
             const drawn = det.boxes ?? [];
-            const summary =
-              drawn.length > 0
-                ? `${drawn.filter((b) => b.class === 'animal').length} animal` +
-                  ` · ${drawn.filter((b) => b.class === 'human').length} human`
-                : det.detections.length === 0
-                ? 'no animals'
-                : det.detections
-                    .map((x) => `${x.label ?? '?'} (${Math.round((x.confidence ?? 0) * 100)}%)`)
-                    .join(', ');
+            const labels = det.detections ?? [];
+            // Prefer the model's per-label list (has species + confidence); fall
+            // back to the drawn-box counts (external/annotated captures). The
+            // key new distinction: analyzed:false → still "analyzing…", NOT the
+            // same as "analyzed and found nothing".
+            let summary: React.ReactNode;
+            if (labels.length > 0) {
+              summary = labels
+                .map((x) => `${x.label ?? '?'} (${Math.round((x.confidence ?? 0) * 100)}%)`)
+                .join(', ');
+            } else if (drawn.length > 0) {
+              const parts = [
+                drawn.filter((b) => b.class === 'animal').length,
+                drawn.filter((b) => b.class === 'human').length,
+              ];
+              summary = [`${parts[0]} animal`, `${parts[1]} human`]
+                .filter((_, i) => parts[i] > 0)
+                .join(' · ') || 'nothing';
+            } else if (det.analyzed) {
+              summary = <span style={{ opacity: 0.6 }}>no animals</span>;
+            } else {
+              summary = <span style={analyzingBadge}>⏳ analyzing…</span>;
+            }
             return (
               <div key={det.id} style={{ padding: 12, background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 8 }}>
                 <b>{det.deviceId}</b>{' '}
