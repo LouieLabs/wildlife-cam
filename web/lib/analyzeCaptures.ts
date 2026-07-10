@@ -31,7 +31,10 @@ const PROJECT = process.env.GCP_PROJECT_ID || 'louielabs-animal-cams';
 // Vertex Gemini region. us-central1 has the widest model availability; this is
 // independent of where the bucket/Firestore live (us-west1).
 const LOCATION = process.env.VERTEX_LOCATION || 'us-central1';
-const MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+// gemini-2.5-pro: more accurate on the hard camera-trap frames (night IR,
+// motion blur, partial animals) than -flash. Slower + costs a bit more per
+// photo — override to gemini-2.5-flash via env if latency/cost matters more.
+const MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-pro';
 
 // Drop animal detections below this confidence from the SAVED list — keeps the
 // dashboard clear of the model's low-conviction guesses. Person/dog are EXEMPT
@@ -101,6 +104,8 @@ The image may be:
 - night INFRARED / black-and-white (glowing eyes, washed-out fur — still identify the animal)
 - motion-blurred, grainy, or badly lit
 - showing only PART of an animal at the frame edge
+- ROTATED 90°/180° (the camera is often mounted sideways, so subjects may be lying
+  on their side or upside down) — mentally rotate the scene and identify anyway
 
 Report every distinct animal, person, or vehicle. For each, give a bounding box.
 Likely species at this location: ${REGION_SPECIES}. Prefer these when the image supports it,
@@ -108,15 +113,24 @@ but do NOT force a match — report what you actually see.
 
 Rules:
 - Use a specific species label when you are reasonably sure (e.g. "mule deer", "raccoon").
-  Use "animal" only when you truly cannot tell.
+  Use "animal" only when you truly cannot tell what kind.
 - Label a human as "person" and a dog as "dog" (these drive a privacy filter).
 - confidence is your genuine 0..1 certainty. Be HONEST and conservative — it is
   far better to return [] than to hallucinate an animal in an empty frame. Vegetation,
-  shadows, rain streaks, timestamps, and IR glare are NOT animals.
+  shadows, ceiling lights, furniture, rain streaks, timestamps, and IR glare are NOT animals.
+- box_2d are integers 0-1000 normalized to the image (ymin, xmin, ymax, xmax, top-left origin),
+  drawn in the image AS GIVEN (do not rotate the coordinates).
 
-Respond with ONLY a JSON array, no prose, no markdown:
-[{"label": "<species|person|vehicle|animal>", "confidence": <0..1>, "box_2d": [ymin, xmin, ymax, xmax]}]
-box_2d are integers 0-1000 normalized to the image (top-left origin).
+Respond with ONLY a JSON array, no prose, no markdown. Worked examples:
+- A deer standing on the right side:
+  [{"label":"mule deer","confidence":0.94,"box_2d":[300,600,900,860]}]
+- A person close to the lens + a dog beside them:
+  [{"label":"person","confidence":0.9,"box_2d":[80,380,1000,720]},{"label":"dog","confidence":0.82,"box_2d":[640,120,980,360]}]
+- A raccoon at night, only its head visible at the edge:
+  [{"label":"raccoon","confidence":0.6,"box_2d":[400,0,700,180]}]
+- An empty room, just lights/furniture/glare (NOTHING alive):
+  []
+
 If there is no animal, person, or vehicle, respond with exactly: []`;
 
 const isPersonOrDog = (label: string) => /\b(person|people|human|dog)\b/i.test(label);

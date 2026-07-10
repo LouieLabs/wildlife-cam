@@ -4,8 +4,9 @@ import { checkRateLimit, rateLimitHeaders } from '@/lib/rateLimit';
 import { analyzePendingCaptures } from '@/lib/analyzeCaptures';
 
 export const runtime = 'nodejs';
-// A batch of Gemini calls can take a while; don't let the platform default cut it off.
-export const maxDuration = 60;
+// gemini-2.5-pro is slower per call than -flash; give a batch of them room so
+// the platform doesn't cut the request off mid-analysis.
+export const maxDuration = 120;
 
 // POST /api/analyze-pending — run the in-cloud AI over unanalyzed captures.
 //
@@ -34,7 +35,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: rateLimitHeaders(rl) });
     }
 
-    const result = await analyzePendingCaptures(5);
+    // 3 per tick: -pro is slower, and the dashboard re-triggers every 30s, so a
+    // backlog still drains steadily while each request stays well under maxDuration.
+    const result = await analyzePendingCaptures(3);
     return NextResponse.json(result);
   } catch (err) {
     if (err instanceof HttpError) {
