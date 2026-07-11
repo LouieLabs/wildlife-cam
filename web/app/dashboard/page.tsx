@@ -3,6 +3,10 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
 import { clientAuth } from '@/lib/firebaseClient';
+import {
+  BURST_MS_MIN, BURST_MS_MAX, BURST_SHOTS_MIN, BURST_SHOTS_MAX,
+  BURST_MS_DEFAULT, BURST_SHOTS_DEFAULT,
+} from '@/lib/captureSettings';
 
 // ---- shared UI tokens (a tiny design system so the page reads as one thing) --
 const ui = {
@@ -38,6 +42,9 @@ type Device = {
   status: string;
   battery: number | null;
   command: string;
+  // Per-camera motion-burst capture settings (null until first configured ->
+  // the camera runs its firmware defaults).
+  settings: { burstMs?: number; burstMaxShots?: number; updatedAt?: number; updatedBy?: string } | null;
   mac: string | null;
   lastUpdate: number | null;
   firmwareVersion: string | null;
@@ -118,6 +125,11 @@ export default function DashboardPage() {
   const [nameInput, setNameInput] = useState('');
   const [editingWifi, setEditingWifi] = useState<string | null>(null);
   const [wifiSlug, setWifiSlug] = useState('');
+  // Editing a camera's capture (motion-burst) settings: which device's row is
+  // open, plus the two field values as strings (raw input, validated on save).
+  const [editingSettings, setEditingSettings] = useState<string | null>(null);
+  const [burstMsInput, setBurstMsInput] = useState('');
+  const [burstShotsInput, setBurstShotsInput] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
   // Persist the "show boxes" preference; annotated captures (external cams)
   // render red/yellow rectangles over the raw image when this is on.
@@ -258,6 +270,38 @@ export default function DashboardPage() {
       setWifiSlug('');
     } catch (e: any) {
       setError(e?.message || 'Wi-Fi change failed');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  // Save a camera's motion-burst capture settings (how often it photographs
+  // while motion continues, and the max photos per motion event). Pushed OTA via
+  // the command-poll reply; the board applies them on its next wake. The server
+  // clamps to safe bounds, so a wild value here can't harm the camera.
+  async function saveCaptureSettings(deviceId: string) {
+    const burstMs = Number(burstMsInput);
+    const burstMaxShots = Number(burstShotsInput);
+    if (!Number.isFinite(burstMs) || !Number.isFinite(burstMaxShots)) {
+      setError('Photo gap and max photos must both be numbers');
+      return;
+    }
+    setError('');
+    setBusyId(deviceId);
+    try {
+      const res = await authedFetch(`/api/devices/${encodeURIComponent(deviceId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'set_capture_settings', burstMs, burstMaxShots }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Saving settings failed');
+      // Reflect the clamped values the server actually stored on the card.
+      setDevices((ds) => ds.map((d) =>
+        d.deviceId === deviceId ? { ...d, settings: { ...(d.settings || {}), ...data.settings } } : d));
+      setEditingSettings(null);
+    } catch (e: any) {
+      setError(e?.message || 'Saving settings failed');
     } finally {
       setBusyId(null);
     }
@@ -465,6 +509,53 @@ export default function DashboardPage() {
                           onClick={() => { setEditingWifi(d.deviceId); setWifiSlug(''); }}
                         >
                           Edit Wi-Fi
+                        </button>
+                      </>
+                    )}
+                  </div>
+
+                  <div style={cell}>
+                    <b>Capture:</b>{' '}
+                    {editingSettings === d.deviceId ? (
+                      <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <label style={{ fontSize: 12 }}>
+                          a photo every{' '}
+                          <input
+                            type="number" min={BURST_MS_MIN} max={BURST_MS_MAX} step={100}
+                            value={burstMsInput} onChange={(e) => setBurstMsInput(e.target.value)}
+                            style={{ width: 76, fontSize: 12 }}
+                          />{' '}ms
+                        </label>
+                        <label style={{ fontSize: 12 }}>
+                          · up to{' '}
+                          <input
+                            type="number" min={BURST_SHOTS_MIN} max={BURST_SHOTS_MAX} step={1}
+                            value={burstShotsInput} onChange={(e) => setBurstShotsInput(e.target.value)}
+                            style={{ width: 60, fontSize: 12 }}
+                          />{' '}per burst
+                        </label>
+                        <button style={tagBtn} disabled={busyId === d.deviceId} onClick={() => saveCaptureSettings(d.deviceId)}>
+                          {busyId === d.deviceId ? 'Saving…' : 'Save'}
+                        </button>
+                        <button style={tagBtn} onClick={() => setEditingSettings(null)}>Cancel</button>
+                        <span style={{ fontSize: 11, opacity: 0.7 }}>applies on the camera&apos;s next wake</span>
+                      </span>
+                    ) : (
+                      <>
+                        a photo every{' '}
+                        <b>{d.settings?.burstMs ?? BURST_MS_DEFAULT} ms</b>{' '}while moving, up to{' '}
+                        <b>{d.settings?.burstMaxShots ?? BURST_SHOTS_DEFAULT}</b>{' '}per burst
+                        {!d.settings && <i style={{ opacity: 0.7 }}> (firmware default)</i>}
+                        <button
+                          style={tagBtn}
+                          title="How often this camera takes a photo while motion continues, and the max photos per motion event. Pushed over the air; applied on the camera's next wake."
+                          onClick={() => {
+                            setEditingSettings(d.deviceId);
+                            setBurstMsInput(String(d.settings?.burstMs ?? BURST_MS_DEFAULT));
+                            setBurstShotsInput(String(d.settings?.burstMaxShots ?? BURST_SHOTS_DEFAULT));
+                          }}
+                        >
+                          Edit
                         </button>
                       </>
                     )}

@@ -62,6 +62,10 @@ export async function GET(req: NextRequest) {
         //   { result, from, to, durationS, ts }
         lastOta: state.lastOta ?? null,
         command: node.command ?? 'idle',
+        // Per-camera motion-burst capture settings the operator has set (null
+        // until first configured -> the camera runs its firmware defaults).
+        // Shape: { burstMs, burstMaxShots, updatedAt, updatedBy }.
+        settings: node.settings ?? null,
         mac: m.mac ?? null,
         // Per-camera network creds captured at provision time (null when the
         // camera was never provisioned on that radio). Visible because this
