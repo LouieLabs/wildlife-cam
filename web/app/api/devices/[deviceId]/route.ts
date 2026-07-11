@@ -3,6 +3,7 @@ import { rtdbGet, rtdbSet } from '@/lib/rtdb';
 import { requireLouieLabsUser, HttpError } from '@/lib/requireLouieLabsUser';
 import { checkRateLimit, rateLimitHeaders } from '@/lib/rateLimit';
 import type { SavedNetwork } from '@/lib/networks';
+import { coerceCaptureSettings } from '@/lib/captureSettings';
 
 export const runtime = 'nodejs';
 
@@ -80,18 +81,39 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ deviceId:
 
     const body = await req.json().catch(() => ({}));
     const action = String(body.action || '').trim();
-    if (action !== 'set_wifi') {
-      return NextResponse.json({ error: "Unsupported action (only 'set_wifi')" }, { status: 400 });
+    if (action !== 'set_wifi' && action !== 'set_capture_settings') {
+      return NextResponse.json({ error: "Unsupported action (only 'set_wifi', 'set_capture_settings')" }, { status: 400 });
     }
 
-    // The camera must exist and be a networked (command-polling) camera -- an
-    // external data source has no board to push creds to.
+    // Both actions push config to a physical board, so the camera must exist and
+    // be a networked (command-polling) camera -- an external data source has no
+    // board to configure over the air.
     const meta = await rtdbGet<Record<string, any>>(`device_meta/${deviceId}`);
     if (!meta) {
       return NextResponse.json({ error: 'Camera not found' }, { status: 404 });
     }
     if (meta.cameraType && meta.cameraType !== 'networked') {
-      return NextResponse.json({ error: 'Only networked cameras can be re-pointed over the air' }, { status: 400 });
+      return NextResponse.json({ error: 'Only networked cameras can be configured over the air' }, { status: 400 });
+    }
+
+    // Capture (motion-burst) settings: validate + clamp, then persist to
+    // devices/<id>/settings. The command-poll route hands these to the board on
+    // its next wake (no `command` needed -- settings ride along with whatever
+    // the board is already polling for), so we do NOT queue a command here.
+    if (action === 'set_capture_settings') {
+      let clamped;
+      try {
+        clamped = coerceCaptureSettings(body);
+      } catch (msg) {
+        return NextResponse.json({ error: String(msg) }, { status: 400 });
+      }
+      await rtdbSet(`devices/${deviceId}/settings`, {
+        burstMs: clamped.burstMs,
+        burstMaxShots: clamped.burstMaxShots,
+        updatedAt: Date.now(),
+        updatedBy: user.email ?? user.uid,
+      });
+      return NextResponse.json({ deviceId, settings: clamped });
     }
 
     const networkSlug = String(body.networkSlug || '').trim();

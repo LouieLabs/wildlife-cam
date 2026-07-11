@@ -3,6 +3,7 @@ import { rtdbGet } from '@/lib/rtdb';
 import { requireDeviceSecret } from '@/lib/requireDeviceSecret';
 import { HttpError } from '@/lib/requireLouieLabsUser';
 import { checkRateLimit, clientIp, rateLimitHeaders } from '@/lib/rateLimit';
+import { sanitizeCaptureSettings } from '@/lib/captureSettings';
 
 // Must run on the Node.js runtime: rtdbGet needs the Google Cloud SDK + ADC.
 export const runtime = 'nodejs';
@@ -113,10 +114,20 @@ export async function POST(req: NextRequest) {
 
   const command = (await rtdbGet<string>(`devices/${deviceId}/command`)) ?? 'idle';
 
+  // Per-device capture (motion-burst) settings the dashboard has set, if any.
+  // Echoed on EVERY reply (idle / take_picture / set_wifi / set_id /
+  // update_firmware) so the firmware always sees the latest -- it caches them and
+  // applies on its next wake. Absent -> the firmware keeps its compile-time
+  // defaults. Attached only when present so the firmware's tiny JSON parser
+  // never has to deal with an empty object.
+  const settings = sanitizeCaptureSettings(await rtdbGet<unknown>(`devices/${deviceId}/settings`));
+  const base: Record<string, unknown> = { deviceId, command };
+  if (settings) base.settings = settings;
+
   if (command === 'update_firmware') {
     const target = sanitizeOtaTarget(await rtdbGet<unknown>(`devices/${deviceId}/otaTarget`));
     if (target) {
-      return NextResponse.json({ deviceId, command, ota: target });
+      return NextResponse.json({ ...base, ota: target });
     }
     // Command says update but the payload is gone/malformed. Return the verb
     // anyway -- the firmware treats "update_firmware without ota" as a skip,
@@ -126,7 +137,7 @@ export async function POST(req: NextRequest) {
   if (command === 'set_wifi') {
     const wifi = sanitizeWifiTarget(await rtdbGet<unknown>(`devices/${deviceId}/wifiTarget`));
     if (wifi) {
-      return NextResponse.json({ deviceId, command, wifi });
+      return NextResponse.json({ ...base, wifi });
     }
     // Missing/malformed target -> return the verb; firmware ignores a set_wifi
     // with no wifi object rather than joining a garbage network.
@@ -135,11 +146,11 @@ export async function POST(req: NextRequest) {
   if (command === 'set_id') {
     const rename = sanitizeIdTarget(await rtdbGet<unknown>(`devices/${deviceId}/idTarget`));
     if (rename) {
-      return NextResponse.json({ deviceId, command, rename });
+      return NextResponse.json({ ...base, rename });
     }
     // Missing/malformed target -> return the verb; firmware ignores a set_id
     // with no rename object rather than adopting a garbage id.
   }
 
-  return NextResponse.json({ deviceId, command });
+  return NextResponse.json(base);
 }
