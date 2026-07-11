@@ -1,8 +1,9 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
+import { onAuthStateChanged, type User } from 'firebase/auth';
 import { clientAuth } from '@/lib/firebaseClient';
+import AppHeader from '@/components/AppHeader';
 import {
   BURST_MS_MIN, BURST_MS_MAX, BURST_SHOTS_MIN, BURST_SHOTS_MAX,
   BURST_MS_DEFAULT, BURST_SHOTS_DEFAULT,
@@ -28,10 +29,6 @@ const btnPrimary: React.CSSProperties = {
   background: ui.green, color: '#fff', border: 'none', borderRadius: 8,
   padding: '7px 12px', fontSize: 14, fontWeight: 600, cursor: 'pointer',
 };
-const btnGhost: React.CSSProperties = {
-  background: '#fff', color: ui.slate, border: `1px solid ${ui.border}`,
-  borderRadius: 8, padding: '6px 10px', fontSize: 13, cursor: 'pointer',
-};
 const btnDanger: React.CSSProperties = {
   background: 'none', color: ui.danger, border: 'none', fontSize: 13,
   cursor: 'pointer', padding: '6px 4px',
@@ -56,65 +53,10 @@ type Device = {
   secret: string | null;
 };
 
-type DrawnBox = { class: 'human' | 'animal'; bbox: [number, number, number, number] };
-
-type Detection = {
-  id: string;
-  deviceId: string;
-  imageUrl: string | null;
-  capturedAt: number;
-  analyzed?: boolean;  // false = still waiting for the AI; true = the AI has run
-  detections: { label?: string; confidence?: number; box?: number[] }[];
-  boxes?: DrawnBox[];  // human-annotated boxes from external cameras (trail cams etc.)
-};
-
-// Canvas-overlaid image for detections that carry pre-drawn boxes (external
-// data sources). Colors match the source annotations sampled from the batch.
-function CaptureImage({ det, showBoxes }: { det: Detection; showBoxes: boolean }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const imgRef = useRef<HTMLImageElement>(null);
-  const boxes = det.boxes ?? [];
-  const draw = () => {
-    const img = imgRef.current;
-    const canvas = canvasRef.current;
-    if (!img || !canvas) return;
-    canvas.width = img.clientWidth;
-    canvas.height = img.clientHeight;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    if (!showBoxes || !boxes.length) return;
-    const sx = img.clientWidth / img.naturalWidth;
-    const sy = img.clientHeight / img.naturalHeight;
-    ctx.lineWidth = 2;
-    for (const b of boxes) {
-      ctx.strokeStyle = b.class === 'human' ? 'rgb(208,22,24)' : 'rgb(240,240,70)';
-      const [x, y, w, h] = b.bbox;
-      ctx.strokeRect(x * sx, y * sy, w * sx, h * sy);
-    }
-  };
-  useEffect(draw, [showBoxes, boxes]);
-  return (
-    <div style={{ position: 'relative', maxWidth: 320, marginTop: 8, lineHeight: 0 }}>
-      <img
-        ref={imgRef}
-        src={det.imageUrl!}
-        alt=""
-        style={{ width: '100%', display: 'block' }}
-        onLoad={draw}
-      />
-      <canvas
-        ref={canvasRef}
-        style={{ position: 'absolute', top: 0, left: 0, pointerEvents: 'none' }}
-      />
-    </div>
-  );
-}
 
 export default function DashboardPage() {
   const [user, setUser] = useState<User | null>(null);
   const [devices, setDevices] = useState<Device[]>([]);
-  const [detections, setDetections] = useState<Detection[]>([]);
   const [error, setError] = useState('');
   const [revealedSecrets, setRevealedSecrets] = useState<Record<string, boolean>>({});
   const [revealedPasswords, setRevealedPasswords] = useState<Record<string, boolean>>({});
@@ -131,16 +73,6 @@ export default function DashboardPage() {
   const [burstMsInput, setBurstMsInput] = useState('');
   const [burstShotsInput, setBurstShotsInput] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
-  // Persist the "show boxes" preference; annotated captures (external cams)
-  // render red/yellow rectangles over the raw image when this is on.
-  const [showBoxes, setShowBoxes] = useState(true);
-  useEffect(() => {
-    const saved = typeof window !== 'undefined' ? window.localStorage.getItem('wps.showBoxes') : null;
-    if (saved !== null) setShowBoxes(saved === 'true');
-  }, []);
-  useEffect(() => {
-    if (typeof window !== 'undefined') window.localStorage.setItem('wps.showBoxes', String(showBoxes));
-  }, [showBoxes]);
 
   useEffect(() => onAuthStateChanged(clientAuth, setUser), []);
 
@@ -157,41 +89,19 @@ export default function DashboardPage() {
     let active = true;
     async function load() {
       try {
-        const [dRes, detRes] = await Promise.all([
-          authedFetch('/api/devices'),
-          authedFetch('/api/detections'),
-        ]);
+        const dRes = await authedFetch('/api/devices');
         const dData = await dRes.json();
-        const detData = await detRes.json();
         if (!dRes.ok) throw new Error(dData.error || 'Failed to load devices');
-        if (active) {
-          setDevices(dData.devices);
-          if (detRes.ok) setDetections(detData.detections);
-        }
+        if (active) setDevices(dData.devices);
       } catch (e: any) {
         if (active) setError(e?.message || 'Failed');
       }
     }
     load();
     const t = setInterval(load, 10000); // refresh every 10s
-
-    // Kick the in-cloud AI while the dashboard is open: any unanalyzed photos
-    // get Gemini labels + boxes (keyless, server-side — see /api/analyze-pending).
-    // Slower cadence than load(): each call may run several model invocations.
-    // Fire-and-forget; the next load() picks up whatever finished.
-    async function analyze() {
-      try {
-        await authedFetch('/api/analyze-pending', { method: 'POST' });
-      } catch {
-        /* non-fatal: photos stay "pending" and get retried next tick */
-      }
-    }
-    analyze();
-    const ta = setInterval(analyze, 30000);
     return () => {
       active = false;
       clearInterval(t);
-      clearInterval(ta);
     };
   }, [user]);
 
@@ -355,7 +265,6 @@ export default function DashboardPage() {
   const cell: React.CSSProperties = { fontSize: 12, opacity: 0.8 };
   const tagBtn: React.CSSProperties = { fontSize: 11, padding: '2px 6px', marginLeft: 6, cursor: 'pointer' };
   const pendingBadge: React.CSSProperties = { fontSize: 11, marginLeft: 8, padding: '1px 6px', borderRadius: 4, background: '#fef3c7', color: '#92400e' };
-  const analyzingBadge: React.CSSProperties = { fontSize: 12, padding: '1px 8px', borderRadius: 4, background: '#e0e7ff', color: '#3730a3' };
   // Render a "label: value (Reveal)" pair where value is masked until clicked.
   // Used for both per-camera Wi-Fi/HaLow passwords and the device secret.
   function renderSecretField(label: string, value: string | null, key: string, revealedMap: Record<string, boolean>, setRevealedMap: (m: Record<string, boolean>) => void) {
@@ -378,28 +287,7 @@ export default function DashboardPage() {
 
   return (
     <div style={{ minHeight: '100vh' }}>
-      {/* Sticky app bar: back to home, title, quick nav, who's signed in + sign out */}
-      <header
-        style={{
-          position: 'sticky', top: 0, zIndex: 10,
-          display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap',
-          padding: '12px 24px', background: '#ffffff',
-          borderBottom: `1px solid ${ui.border}`,
-        }}
-      >
-        <Link href="/" style={{ ...btnGhost, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          ← Home
-        </Link>
-        <span style={{ fontWeight: 700, fontSize: 17 }}>🦝 Wildlife Monitor</span>
-        <nav style={{ display: 'flex', gap: 16, fontSize: 14, color: ui.slate }}>
-          <Link href="/provision" style={{ color: ui.slate }}>Set up a camera</Link>
-          <Link href="/networks" style={{ color: ui.slate }}>Wi-Fi networks</Link>
-        </nav>
-        <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 10, fontSize: 13, color: ui.slate }}>
-          <span style={{ opacity: 0.8 }}>{user.email}</span>
-          <button style={btnGhost} onClick={() => signOut(clientAuth)}>Sign out</button>
-        </span>
-      </header>
+      <AppHeader email={user.email} active="/dashboard" />
 
       <main style={{ maxWidth: 860, margin: '0 auto', padding: 24 }}>
         <h1 style={{ fontSize: 24, margin: '4px 0 4px' }}>Live dashboard</h1>
@@ -583,62 +471,15 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <h2 style={{ fontSize: 18, marginTop: 24 }}>
-        Recent detections{' '}
-        <button
-          onClick={() => setShowBoxes((v) => !v)}
-          style={{ marginLeft: 8, fontSize: 12, padding: '2px 8px' }}
-        >
-          {showBoxes ? 'hide boxes' : 'show boxes'}
-        </button>
-      </h2>
-      {detections.length === 0 ? (
-        <p style={{ opacity: 0.7 }}>No detections yet.</p>
-      ) : (
-        <div style={{ display: 'grid', gap: 12 }}>
-          {detections.map((det) => {
-            const drawn = det.boxes ?? [];
-            const labels = det.detections ?? [];
-            // Prefer the model's per-label list (has species + confidence); fall
-            // back to the drawn-box counts (external/annotated captures). The
-            // key new distinction: analyzed:false → still "analyzing…", NOT the
-            // same as "analyzed and found nothing".
-            let summary: React.ReactNode;
-            if (labels.length > 0) {
-              summary = labels
-                .map((x) => `${x.label ?? '?'} (${Math.round((x.confidence ?? 0) * 100)}%)`)
-                .join(', ');
-            } else if (drawn.length > 0) {
-              const parts = [
-                drawn.filter((b) => b.class === 'animal').length,
-                drawn.filter((b) => b.class === 'human').length,
-              ];
-              summary = [`${parts[0]} animal`, `${parts[1]} human`]
-                .filter((_, i) => parts[i] > 0)
-                .join(' · ') || 'nothing';
-            } else if (det.analyzed) {
-              summary = <span style={{ opacity: 0.6 }}>no animals</span>;
-            } else {
-              summary = <span style={analyzingBadge}>⏳ analyzing…</span>;
-            }
-            return (
-              <div key={det.id} style={card}>
-                <b>{det.deviceId}</b>{' '}
-                <span style={{ fontSize: 12, opacity: 0.7 }}>
-                  {new Date(det.capturedAt).toLocaleString()}
-                </span>
-                <div style={{ marginTop: 2, fontSize: 15 }}>{summary}</div>
-                {det.imageUrl && <CaptureImage det={det} showBoxes={showBoxes} />}
-                {det.imageUrl && (
-                  <a href={det.imageUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: ui.slate }}>
-                    view full image
-                  </a>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
+      <section style={{ ...card, marginTop: 20 }}>
+        <b>📷 Photos have their own pages now</b>
+        <p style={{ margin: '6px 0 0', color: ui.slate, fontSize: 14 }}>
+          Browse every photo on{' '}
+          <Link href="/all-images" style={{ color: ui.green, fontWeight: 600 }}>All images</Link>, or just the
+          ones where the AI spotted an animal or a person on{' '}
+          <Link href="/detections" style={{ color: ui.green, fontWeight: 600 }}>Detections</Link>.
+        </p>
+      </section>
       </main>
     </div>
   );
