@@ -88,6 +88,7 @@ describe('POST /api/command-poll', () => {
   it('embeds the ota object when the command is "update_firmware"', async () => {
     m.rtdbGet
       .mockResolvedValueOnce('update_firmware')   // devices/cam_a/command
+      .mockResolvedValueOnce(null)                // devices/cam_a/settings (no capture overrides)
       .mockResolvedValueOnce(VALID_OTA_TARGET);   // devices/cam_a/otaTarget
     const res = await POST(makeRequest({
       method: 'POST',
@@ -113,7 +114,7 @@ describe('POST /api/command-poll', () => {
     }));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ deviceId: 'cam_a', command: 'take_picture' });
-    expect(m.rtdbGet).toHaveBeenCalledTimes(1);   // no otaTarget read
+    expect(m.rtdbGet).not.toHaveBeenCalledWith('devices/cam_a/otaTarget');   // no otaTarget read
   });
 
   it('drops the ota key when otaTarget is missing (malformed dashboard state)', async () => {
@@ -149,6 +150,7 @@ describe('POST /api/command-poll', () => {
   it('embeds the wifi object when the command is "set_wifi"', async () => {
     m.rtdbGet
       .mockResolvedValueOnce('set_wifi')                                   // command
+      .mockResolvedValueOnce(null)                                         // settings (no capture overrides)
       .mockResolvedValueOnce({ ssid: 'School-WiFi', pass: 'pw12345678', netMode: 'wifi' }); // wifiTarget
     const res = await POST(makeRequest({
       method: 'POST',
@@ -167,6 +169,7 @@ describe('POST /api/command-poll', () => {
   it('defaults netMode to "wifi" and allows an empty password (open network)', async () => {
     m.rtdbGet
       .mockResolvedValueOnce('set_wifi')
+      .mockResolvedValueOnce(null)                            // settings (no capture overrides)
       .mockResolvedValueOnce({ ssid: 'OpenAP', pass: '' });   // no netMode
     const res = await POST(makeRequest({
       method: 'POST',
@@ -196,6 +199,7 @@ describe('POST /api/command-poll', () => {
   it('embeds the rename object when the command is "set_id"', async () => {
     m.rtdbGet
       .mockResolvedValueOnce('set_id')            // command
+      .mockResolvedValueOnce(null)                // settings (no capture overrides)
       .mockResolvedValueOnce({ newId: 'pond_cam_02' }); // idTarget
     const res = await POST(makeRequest({
       method: 'POST',
