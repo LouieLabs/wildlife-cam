@@ -70,20 +70,9 @@ type Detection = {
 
 // Canvas-overlaid image for detections that carry pre-drawn boxes (external
 // data sources). Colors match the source annotations sampled from the batch.
-//
-// A per-image "Rotate 90°" button turns the picture in the browser -- each click
-// adds another 90° and wraps back to upright after four (0 -> 90 -> 180 -> 270 ->
-// 0). Handy for cameras mounted sideways. The rotation is VIEW ONLY: it isn't
-// saved, so a refresh shows the original orientation again. Any overlay boxes
-// rotate WITH the image (they live in the same rotated group), so they stay
-// aligned. The frame below reserves space for the rotated footprint so a turned
-// image never overlaps the caption/link beneath it.
-const CAPTURE_MAX_W = 320;   // column width the gallery image fits into
 function CaptureImage({ det, showBoxes }: { det: Detection; showBoxes: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
-  const [rot, setRot] = useState(0);             // 0 / 90 / 180 / 270 degrees
-  const [box, setBox] = useState({ w: 0, h: 0 }); // rendered (unrotated) size, px
   const boxes = det.boxes ?? [];
   const draw = () => {
     const img = imgRef.current;
@@ -91,11 +80,6 @@ function CaptureImage({ det, showBoxes }: { det: Detection; showBoxes: boolean }
     if (!img || !canvas) return;
     canvas.width = img.clientWidth;
     canvas.height = img.clientHeight;
-    // Remember the rendered size so the frame can reserve the right space for
-    // the rotated image (only update on an actual change to avoid a render loop).
-    if (img.clientWidth && (img.clientWidth !== box.w || img.clientHeight !== box.h)) {
-      setBox({ w: img.clientWidth, h: img.clientHeight });
-    }
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -110,60 +94,19 @@ function CaptureImage({ det, showBoxes }: { det: Detection; showBoxes: boolean }
     }
   };
   useEffect(draw, [showBoxes, boxes]);
-
-  const rotated = rot % 180 !== 0;
-  // Footprint of the rotated image, scaled down if a sideways image would spill
-  // past the column width.
-  const footW = rotated ? box.h : box.w;
-  const footH = rotated ? box.w : box.h;
-  const scale = footW > CAPTURE_MAX_W && footW > 0 ? CAPTURE_MAX_W / footW : 1;
-  const rotateBtn: React.CSSProperties = { fontSize: 11, padding: '2px 6px', marginTop: 4, cursor: 'pointer' };
-
   return (
-    <div style={{ marginTop: 8 }}>
-      <div
-        style={{
-          position: 'relative',
-          width: box.w ? footW * scale : '100%',
-          height: box.w ? footH * scale : undefined,
-          maxWidth: CAPTURE_MAX_W,
-          overflow: 'hidden',
-        }}
-      >
-        <div
-          style={{
-            position: box.w ? 'absolute' : 'relative',
-            top: '50%',
-            left: '50%',
-            width: box.w || '100%',
-            transform: box.w
-              ? `translate(-50%, -50%) rotate(${rot}deg) scale(${scale})`
-              : undefined,
-            transformOrigin: 'center center',
-            lineHeight: 0,
-          }}
-        >
-          <img
-            ref={imgRef}
-            src={det.imageUrl!}
-            alt=""
-            style={{ width: box.w || '100%', display: 'block' }}
-            onLoad={draw}
-          />
-          <canvas
-            ref={canvasRef}
-            style={{ position: 'absolute', top: 0, left: 0, pointerEvents: 'none' }}
-          />
-        </div>
-      </div>
-      <button
-        type="button"
-        style={rotateBtn}
-        title="Rotate this image 90° (click again to keep turning). View only — not saved."
-        onClick={() => setRot((r) => (r + 90) % 360)}
-      >
-        ⟳ Rotate 90°{rot ? ` · ${rot}°` : ''}
-      </button>
+    <div style={{ position: 'relative', maxWidth: 320, marginTop: 8, lineHeight: 0 }}>
+      <img
+        ref={imgRef}
+        src={det.imageUrl!}
+        alt=""
+        style={{ width: '100%', display: 'block' }}
+        onLoad={draw}
+      />
+      <canvas
+        ref={canvasRef}
+        style={{ position: 'absolute', top: 0, left: 0, pointerEvents: 'none' }}
+      />
     </div>
   );
 }
