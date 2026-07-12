@@ -10,14 +10,22 @@ import {
   validatePassword,
   validateSsid,
 } from '@/lib/networks';
+import { corsHeaders } from '@/lib/cors';
 
 export const runtime = 'nodejs';
+
+// CORS preflight: the louielabs.com gallery calls this route cross-origin.
+// Auth is unchanged -- corsHeaders only echoes allowlisted origins.
+export async function OPTIONS(req: NextRequest) {
+  return new NextResponse(null, { status: 204, headers: corsHeaders(req) });
+}
 
 // GET /api/networks
 // Lists every saved network WITHOUT the password (so an over-broad fetch never
 // leaks creds). Picker + admin index call this; password is only revealed by
 // the per-slug GET below when the user explicitly asks.
 export async function GET(req: NextRequest) {
+  const cors = corsHeaders(req);
   try {
     await requireLouieLabsUser(req);
 
@@ -27,12 +35,12 @@ export async function GET(req: NextRequest) {
     // the network you most likely want.
     list.sort((a, b) => b.updatedAt - a.updatedAt);
 
-    return NextResponse.json({ networks: list });
+    return NextResponse.json({ networks: list }, { headers: cors });
   } catch (err) {
     if (err instanceof HttpError) {
-      return NextResponse.json({ error: err.message }, { status: err.status });
+      return NextResponse.json({ error: err.message }, { status: err.status, headers: cors });
     }
-    return NextResponse.json({ error: 'Internal error' }, { status: 500 });
+    return NextResponse.json({ error: 'Internal error' }, { status: 500, headers: cors });
   }
 }
 
@@ -41,6 +49,7 @@ export async function GET(req: NextRequest) {
 // (no silent overwrite) so an admin doesn't clobber an existing record by
 // accident -- if they meant to update, they use PUT.
 export async function POST(req: NextRequest) {
+  const cors = corsHeaders(req);
   try {
     const user = await requireLouieLabsUser(req);
 
@@ -50,7 +59,7 @@ export async function POST(req: NextRequest) {
       windowMs: 60_000,
     });
     if (!rl.allowed) {
-      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: rateLimitHeaders(rl) });
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: { ...cors, ...rateLimitHeaders(rl) } });
     }
 
     const body = await req.json();
@@ -59,16 +68,16 @@ export async function POST(req: NextRequest) {
     const notes = body.notes ? String(body.notes).slice(0, 200) : '';
 
     const ssidErr = validateSsid(ssid);
-    if (ssidErr) return NextResponse.json({ error: ssidErr }, { status: 400 });
+    if (ssidErr) return NextResponse.json({ error: ssidErr }, { status: 400, headers: cors });
     const pwErr = validatePassword(password);
-    if (pwErr) return NextResponse.json({ error: pwErr }, { status: 400 });
+    if (pwErr) return NextResponse.json({ error: pwErr }, { status: 400, headers: cors });
 
     const slug = slugify(ssid);
     const existing = await rtdbGet<SavedNetwork>(`networks/${slug}`);
     if (existing) {
       return NextResponse.json(
         { error: `A saved network with slug "${slug}" already exists. Use PUT to update.` },
-        { status: 409 }
+        { status: 409, headers: cors }
       );
     }
 
@@ -85,11 +94,11 @@ export async function POST(req: NextRequest) {
     };
     await rtdbSet(`networks/${slug}`, rec);
 
-    return NextResponse.json({ network: summarize(rec) }, { status: 201 });
+    return NextResponse.json({ network: summarize(rec) }, { status: 201, headers: cors });
   } catch (err) {
     if (err instanceof HttpError) {
-      return NextResponse.json({ error: err.message }, { status: err.status });
+      return NextResponse.json({ error: err.message }, { status: err.status, headers: cors });
     }
-    return NextResponse.json({ error: 'Internal error' }, { status: 500 });
+    return NextResponse.json({ error: 'Internal error' }, { status: 500, headers: cors });
   }
 }

@@ -2,13 +2,21 @@ import { NextRequest, NextResponse } from 'next/server';
 import { rtdbGet } from '@/lib/rtdb';
 import { requireLouieLabsUser, HttpError } from '@/lib/requireLouieLabsUser';
 import { checkRateLimit, rateLimitHeaders } from '@/lib/rateLimit';
+import { corsHeaders } from '@/lib/cors';
 
 export const runtime = 'nodejs';
+
+// CORS preflight: the louielabs.com gallery calls this route cross-origin.
+// Auth is unchanged -- corsHeaders only echoes allowlisted origins.
+export async function OPTIONS(req: NextRequest) {
+  return new NextResponse(null, { status: 204, headers: corsHeaders(req) });
+}
 
 // The dashboard reads live device state through THIS server route, never
 // directly from the database. We strip the per-device secret before sending
 // anything to the browser. Data source: Realtime Database /devices.
 export async function GET(req: NextRequest) {
+  const cors = corsHeaders(req);
   try {
     const user = await requireLouieLabsUser(req);
 
@@ -20,7 +28,7 @@ export async function GET(req: NextRequest) {
       windowMs: 60_000,
     });
     if (!rl.allowed) {
-      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: rateLimitHeaders(rl) });
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: { ...cors, ...rateLimitHeaders(rl) } });
     }
 
     const [devicesData, metaData, secretsData] = await Promise.all([
@@ -81,11 +89,11 @@ export async function GET(req: NextRequest) {
       };
     });
 
-    return NextResponse.json({ devices: list });
+    return NextResponse.json({ devices: list }, { headers: cors });
   } catch (err) {
     if (err instanceof HttpError) {
-      return NextResponse.json({ error: err.message }, { status: err.status });
+      return NextResponse.json({ error: err.message }, { status: err.status, headers: cors });
     }
-    return NextResponse.json({ error: 'Internal error' }, { status: 500 });
+    return NextResponse.json({ error: 'Internal error' }, { status: 500, headers: cors });
   }
 }
