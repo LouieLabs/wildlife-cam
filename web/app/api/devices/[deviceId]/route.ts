@@ -4,8 +4,15 @@ import { requireLouieLabsUser, HttpError } from '@/lib/requireLouieLabsUser';
 import { checkRateLimit, rateLimitHeaders } from '@/lib/rateLimit';
 import type { SavedNetwork } from '@/lib/networks';
 import { coerceCaptureSettings } from '@/lib/captureSettings';
+import { corsHeaders } from '@/lib/cors';
 
 export const runtime = 'nodejs';
+
+// CORS preflight: the louielabs.com gallery calls this route cross-origin.
+// Auth is unchanged -- corsHeaders only echoes allowlisted origins.
+export async function OPTIONS(req: NextRequest) {
+  return new NextResponse(null, { status: 204, headers: corsHeaders(req) });
+}
 
 // DELETE /api/devices/[deviceId]
 // Removes a camera from the RTDB registry: pre_shared_keys, device_meta, and
@@ -20,11 +27,12 @@ export const runtime = 'nodejs';
 // On the field side a delete is effectively a soft-kill; physically wiping
 // the board still requires re-flashing or re-provisioning.
 export async function DELETE(req: NextRequest, ctx: { params: Promise<{ deviceId: string }> }) {
+  const cors = corsHeaders(req);
   try {
     const user = await requireLouieLabsUser(req);
     const { deviceId } = await ctx.params;
     if (!/^[A-Za-z0-9_-]{3,40}$/.test(deviceId)) {
-      return NextResponse.json({ error: 'Invalid device ID' }, { status: 400 });
+      return NextResponse.json({ error: 'Invalid device ID' }, { status: 400, headers: cors });
     }
 
     const rl = await checkRateLimit({
@@ -33,7 +41,7 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ deviceId
       windowMs: 60_000,
     });
     if (!rl.allowed) {
-      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: rateLimitHeaders(rl) });
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: { ...cors, ...rateLimitHeaders(rl) } });
     }
 
     // RTDB removes a key by setting it to null. Done in parallel to keep the
@@ -44,12 +52,12 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ deviceId
       rtdbSet(`devices/${deviceId}`, null),
     ]);
 
-    return NextResponse.json({ deleted: deviceId });
+    return NextResponse.json({ deleted: deviceId }, { headers: cors });
   } catch (err) {
     if (err instanceof HttpError) {
-      return NextResponse.json({ error: err.message }, { status: err.status });
+      return NextResponse.json({ error: err.message }, { status: err.status, headers: cors });
     }
-    return NextResponse.json({ error: 'Internal error' }, { status: 500 });
+    return NextResponse.json({ error: 'Internal error' }, { status: 500, headers: cors });
   }
 }
 
@@ -63,11 +71,12 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ deviceId
 // connects (see WIFI_TRIAL_WAKES in the firmware) -- so a wrong pick can't
 // permanently strand a camera.
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ deviceId: string }> }) {
+  const cors = corsHeaders(req);
   try {
     const user = await requireLouieLabsUser(req);
     const { deviceId } = await ctx.params;
     if (!/^[A-Za-z0-9_-]{3,40}$/.test(deviceId)) {
-      return NextResponse.json({ error: 'Invalid device ID' }, { status: 400 });
+      return NextResponse.json({ error: 'Invalid device ID' }, { status: 400, headers: cors });
     }
 
     const rl = await checkRateLimit({
@@ -76,13 +85,13 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ deviceId:
       windowMs: 60_000,
     });
     if (!rl.allowed) {
-      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: rateLimitHeaders(rl) });
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: { ...cors, ...rateLimitHeaders(rl) } });
     }
 
     const body = await req.json().catch(() => ({}));
     const action = String(body.action || '').trim();
     if (action !== 'set_wifi' && action !== 'set_capture_settings') {
-      return NextResponse.json({ error: "Unsupported action (only 'set_wifi', 'set_capture_settings')" }, { status: 400 });
+      return NextResponse.json({ error: "Unsupported action (only 'set_wifi', 'set_capture_settings')" }, { status: 400, headers: cors });
     }
 
     // Both actions push config to a physical board, so the camera must exist and
@@ -90,10 +99,10 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ deviceId:
     // board to configure over the air.
     const meta = await rtdbGet<Record<string, any>>(`device_meta/${deviceId}`);
     if (!meta) {
-      return NextResponse.json({ error: 'Camera not found' }, { status: 404 });
+      return NextResponse.json({ error: 'Camera not found' }, { status: 404, headers: cors });
     }
     if (meta.cameraType && meta.cameraType !== 'networked') {
-      return NextResponse.json({ error: 'Only networked cameras can be configured over the air' }, { status: 400 });
+      return NextResponse.json({ error: 'Only networked cameras can be configured over the air' }, { status: 400, headers: cors });
     }
 
     // Capture (motion-burst) settings: validate + clamp, then persist to
@@ -105,7 +114,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ deviceId:
       try {
         clamped = coerceCaptureSettings(body);
       } catch (msg) {
-        return NextResponse.json({ error: String(msg) }, { status: 400 });
+        return NextResponse.json({ error: String(msg) }, { status: 400, headers: cors });
       }
       await rtdbSet(`devices/${deviceId}/settings`, {
         burstMs: clamped.burstMs,
@@ -113,13 +122,13 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ deviceId:
         updatedAt: Date.now(),
         updatedBy: user.email ?? user.uid,
       });
-      return NextResponse.json({ deviceId, settings: clamped });
+      return NextResponse.json({ deviceId, settings: clamped }, { headers: cors });
     }
 
     const networkSlug = String(body.networkSlug || '').trim();
     const net = await rtdbGet<SavedNetwork>(`networks/${networkSlug}`);
     if (!net || !net.ssid) {
-      return NextResponse.json({ error: 'Saved network not found' }, { status: 404 });
+      return NextResponse.json({ error: 'Saved network not found' }, { status: 404, headers: cors });
     }
 
     const netMode = 'wifi';   // 2.4 GHz is the only radio the firmware connects with today
@@ -137,11 +146,11 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ deviceId:
       rtdbSet(`device_meta/${deviceId}/wifiPass`, net.password),
     ]);
 
-    return NextResponse.json({ deviceId, command: 'set_wifi', wifiSsid: net.ssid });
+    return NextResponse.json({ deviceId, command: 'set_wifi', wifiSsid: net.ssid }, { headers: cors });
   } catch (err) {
     if (err instanceof HttpError) {
-      return NextResponse.json({ error: err.message }, { status: err.status });
+      return NextResponse.json({ error: err.message }, { status: err.status, headers: cors });
     }
-    return NextResponse.json({ error: 'Internal error' }, { status: 500 });
+    return NextResponse.json({ error: 'Internal error' }, { status: 500, headers: cors });
   }
 }

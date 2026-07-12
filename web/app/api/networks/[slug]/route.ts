@@ -7,8 +7,15 @@ import {
   slugify,
   validatePassword,
 } from '@/lib/networks';
+import { corsHeaders } from '@/lib/cors';
 
 export const runtime = 'nodejs';
+
+// CORS preflight: the louielabs.com gallery calls this route cross-origin.
+// Auth is unchanged -- corsHeaders only echoes allowlisted origins.
+export async function OPTIONS(req: NextRequest) {
+  return new NextResponse(null, { status: 204, headers: corsHeaders(req) });
+}
 
 // Defense-in-depth: this enforcing matches the slug rules in lib/networks.ts
 // AND lib/rtdb.ts safePath. Lets us reject malformed inputs before hitting RTDB.
@@ -22,21 +29,22 @@ function validateSlug(slug: string): string | null {
 // no public read path. Used by the picker (auto-fill the password input on a
 // saved-network pick) and the admin "Reveal" button.
 export async function GET(req: NextRequest, ctx: { params: Promise<{ slug: string }> }) {
+  const cors = corsHeaders(req);
   try {
     await requireLouieLabsUser(req);
     const { slug } = await ctx.params;
     const slugErr = validateSlug(slug);
-    if (slugErr) return NextResponse.json({ error: slugErr }, { status: 400 });
+    if (slugErr) return NextResponse.json({ error: slugErr }, { status: 400, headers: cors });
 
     const rec = await rtdbGet<SavedNetwork>(`networks/${slug}`);
-    if (!rec) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    if (!rec) return NextResponse.json({ error: 'Not found' }, { status: 404, headers: cors });
 
-    return NextResponse.json({ network: rec });
+    return NextResponse.json({ network: rec }, { headers: cors });
   } catch (err) {
     if (err instanceof HttpError) {
-      return NextResponse.json({ error: err.message }, { status: err.status });
+      return NextResponse.json({ error: err.message }, { status: err.status, headers: cors });
     }
-    return NextResponse.json({ error: 'Internal error' }, { status: 500 });
+    return NextResponse.json({ error: 'Internal error' }, { status: 500, headers: cors });
   }
 }
 
@@ -45,11 +53,12 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ slug: strin
 // because changing it would change the slug, which would orphan any consumer
 // referencing the old slug -- delete + re-create if you really need that.
 export async function PUT(req: NextRequest, ctx: { params: Promise<{ slug: string }> }) {
+  const cors = corsHeaders(req);
   try {
     const user = await requireLouieLabsUser(req);
     const { slug } = await ctx.params;
     const slugErr = validateSlug(slug);
-    if (slugErr) return NextResponse.json({ error: slugErr }, { status: 400 });
+    if (slugErr) return NextResponse.json({ error: slugErr }, { status: 400, headers: cors });
 
     const rl = await checkRateLimit({
       key: `uid:${user.uid}:networks-write`,
@@ -57,18 +66,18 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<{ slug: strin
       windowMs: 60_000,
     });
     if (!rl.allowed) {
-      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: rateLimitHeaders(rl) });
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: { ...cors, ...rateLimitHeaders(rl) } });
     }
 
     const existing = await rtdbGet<SavedNetwork>(`networks/${slug}`);
-    if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404, headers: cors });
 
     const body = await req.json();
     const updated: SavedNetwork = { ...existing };
 
     if (body.password !== undefined) {
       const pwErr = validatePassword(body.password);
-      if (pwErr) return NextResponse.json({ error: pwErr }, { status: 400 });
+      if (pwErr) return NextResponse.json({ error: pwErr }, { status: 400, headers: cors });
       updated.password = String(body.password);
     }
     if (body.notes !== undefined) {
@@ -79,12 +88,12 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<{ slug: strin
     updated.updatedAt = Date.now();
     await rtdbSet(`networks/${slug}`, updated);
 
-    return NextResponse.json({ network: updated });
+    return NextResponse.json({ network: updated }, { headers: cors });
   } catch (err) {
     if (err instanceof HttpError) {
-      return NextResponse.json({ error: err.message }, { status: err.status });
+      return NextResponse.json({ error: err.message }, { status: err.status, headers: cors });
     }
-    return NextResponse.json({ error: 'Internal error' }, { status: 500 });
+    return NextResponse.json({ error: 'Internal error' }, { status: 500, headers: cors });
   }
 }
 
@@ -92,11 +101,12 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<{ slug: strin
 // Permanently removes the saved network. Cameras already provisioned with the
 // old creds keep working -- they only consult this notebook at provision time.
 export async function DELETE(req: NextRequest, ctx: { params: Promise<{ slug: string }> }) {
+  const cors = corsHeaders(req);
   try {
     const user = await requireLouieLabsUser(req);
     const { slug } = await ctx.params;
     const slugErr = validateSlug(slug);
-    if (slugErr) return NextResponse.json({ error: slugErr }, { status: 400 });
+    if (slugErr) return NextResponse.json({ error: slugErr }, { status: 400, headers: cors });
 
     const rl = await checkRateLimit({
       key: `uid:${user.uid}:networks-write`,
@@ -104,20 +114,20 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ slug: st
       windowMs: 60_000,
     });
     if (!rl.allowed) {
-      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: rateLimitHeaders(rl) });
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: { ...cors, ...rateLimitHeaders(rl) } });
     }
 
     const existing = await rtdbGet<SavedNetwork>(`networks/${slug}`);
-    if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404, headers: cors });
 
     // Setting null is how RTDB removes a key.
     await rtdbSet(`networks/${slug}`, null);
 
-    return NextResponse.json({ deleted: slug });
+    return NextResponse.json({ deleted: slug }, { headers: cors });
   } catch (err) {
     if (err instanceof HttpError) {
-      return NextResponse.json({ error: err.message }, { status: err.status });
+      return NextResponse.json({ error: err.message }, { status: err.status, headers: cors });
     }
-    return NextResponse.json({ error: 'Internal error' }, { status: 500 });
+    return NextResponse.json({ error: 'Internal error' }, { status: 500, headers: cors });
   }
 }

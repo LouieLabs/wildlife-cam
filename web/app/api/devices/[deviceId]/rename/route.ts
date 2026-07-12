@@ -2,8 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { rtdbGet, rtdbSet } from '@/lib/rtdb';
 import { requireLouieLabsUser, HttpError } from '@/lib/requireLouieLabsUser';
 import { checkRateLimit, rateLimitHeaders } from '@/lib/rateLimit';
+import { corsHeaders } from '@/lib/cors';
 
 export const runtime = 'nodejs';
+
+// CORS preflight: the louielabs.com gallery calls this route cross-origin.
+// Auth is unchanged -- corsHeaders only echoes allowlisted origins.
+export async function OPTIONS(req: NextRequest) {
+  return new NextResponse(null, { status: 204, headers: corsHeaders(req) });
+}
 
 // POST /api/devices/[deviceId]/rename
 // Body: { newId: "<new-device-id>" }
@@ -24,12 +31,13 @@ export const runtime = 'nodejs';
 // separate batch job; this matches the DELETE route's "photos are not moved"
 // behavior). New photos land under the new id.
 export async function POST(req: NextRequest, ctx: { params: Promise<{ deviceId: string }> }) {
+  const cors = corsHeaders(req);
   try {
     const user = await requireLouieLabsUser(req);
     const { deviceId: oldId } = await ctx.params;
 
     if (!/^[A-Za-z0-9_-]{3,40}$/.test(oldId)) {
-      return NextResponse.json({ error: 'Invalid device ID' }, { status: 400 });
+      return NextResponse.json({ error: 'Invalid device ID' }, { status: 400, headers: cors });
     }
 
     const rl = await checkRateLimit({
@@ -38,7 +46,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ deviceId: 
       windowMs: 60_000,
     });
     if (!rl.allowed) {
-      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: rateLimitHeaders(rl) });
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: { ...cors, ...rateLimitHeaders(rl) } });
     }
 
     const body = await req.json().catch(() => ({}));
@@ -46,11 +54,11 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ deviceId: 
     if (!/^[A-Za-z0-9_-]{3,40}$/.test(newId)) {
       return NextResponse.json(
         { error: 'New ID must be 3-40 chars: letters (A-Z, a-z), numbers, _ or -' },
-        { status: 400 }
+        { status: 400, headers: cors }
       );
     }
     if (newId === oldId) {
-      return NextResponse.json({ error: 'New ID is the same as the current one' }, { status: 400 });
+      return NextResponse.json({ error: 'New ID is the same as the current one' }, { status: 400, headers: cors });
     }
 
     const [oldMeta, oldSecret, oldNode] = await Promise.all([
@@ -60,14 +68,14 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ deviceId: 
     ]);
 
     if (!oldMeta) {
-      return NextResponse.json({ error: 'Camera not found' }, { status: 404 });
+      return NextResponse.json({ error: 'Camera not found' }, { status: 404, headers: cors });
     }
     // No secret => external / non-networked camera. There's no board to push a
     // rename to, so refuse rather than silently only-relabel.
     if (!oldSecret) {
       return NextResponse.json(
         { error: 'This camera has no command channel (external camera); it cannot be renamed over the air' },
-        { status: 400 }
+        { status: 400, headers: cors }
       );
     }
 
@@ -77,7 +85,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ deviceId: 
       rtdbGet<string>(`pre_shared_keys/${newId}`),
     ]);
     if (newMeta || newSecret) {
-      return NextResponse.json({ error: `A camera with id "${newId}" already exists` }, { status: 409 });
+      return NextResponse.json({ error: `A camera with id "${newId}" already exists` }, { status: 409, headers: cors });
     }
 
     // 1) Copy OLD -> NEW, keeping the same secret so the board stays authed.
@@ -94,11 +102,11 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ deviceId: 
     await rtdbSet(`devices/${oldId}/idTarget`, { newId });
     await rtdbSet(`devices/${oldId}/command`, 'set_id');
 
-    return NextResponse.json({ renamed: { from: oldId, to: newId }, pending: true });
+    return NextResponse.json({ renamed: { from: oldId, to: newId }, pending: true }, { headers: cors });
   } catch (err) {
     if (err instanceof HttpError) {
-      return NextResponse.json({ error: err.message }, { status: err.status });
+      return NextResponse.json({ error: err.message }, { status: err.status, headers: cors });
     }
-    return NextResponse.json({ error: 'Internal error' }, { status: 500 });
+    return NextResponse.json({ error: 'Internal error' }, { status: 500, headers: cors });
   }
 }
