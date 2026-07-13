@@ -1,0 +1,51 @@
+# Auto-deploy the WildWatch public site (louielabs.com) to Cloud Run.
+#
+# Wired to the Cloud Build trigger in the `louielabs-website` GCP project
+# (NOT louielabs-animal-cams — the public site lives in its own project):
+# on push to `main` filtered to wildwatch-site/**, this builds
+# wildwatch-site/Dockerfile (nginx + index.html + preview.png) and deploys
+# the `louielabs-site` service, which louielabs.com / www.louielabs.com are
+# domain-mapped to. Manual fallback, from wildwatch-site/:
+#   gcloud run deploy louielabs-site --project louielabs-website \
+#     --region us-west1 --source .
+#
+# The _AR_* / _SERVICE_NAME / _DEPLOY_REGION values come from the trigger's
+# substitutions (console-created trigger, 2026-06-26; repointed at this file
+# 2026-07-13 — it originally expected a repo-root cloudbuild.yaml that never
+# existed, so it failed on every push to main).
+
+steps:
+  # 1) Build the image (context = wildwatch-site/, relative to the repo root).
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - '${_AR_HOSTNAME}/${_AR_PROJECT_ID}/${_AR_REPOSITORY}/${_SERVICE_NAME}:$COMMIT_SHA'
+      - 'wildwatch-site'
+
+  # 2) Push it.
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - '${_AR_HOSTNAME}/${_AR_PROJECT_ID}/${_AR_REPOSITORY}/${_SERVICE_NAME}:$COMMIT_SHA'
+
+  # 3) Deploy. The service is already public (--allow-unauthenticated was set
+  #    at creation; IAM persists across deploys) and has the louielabs.com
+  #    domain mappings, so image swap is all that's needed.
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - '${_SERVICE_NAME}'
+      - '--image=${_AR_HOSTNAME}/${_AR_PROJECT_ID}/${_AR_REPOSITORY}/${_SERVICE_NAME}:$COMMIT_SHA'
+      - '--region=${_DEPLOY_REGION}'
+      - '--quiet'
+
+images:
+  - '${_AR_HOSTNAME}/${_AR_PROJECT_ID}/${_AR_REPOSITORY}/${_SERVICE_NAME}:$COMMIT_SHA'
+
+options:
+  # Required because the trigger runs as a user-specified service account
+  # (the project's default compute SA).
+  logging: CLOUD_LOGGING_ONLY

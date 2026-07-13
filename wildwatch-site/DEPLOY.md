@@ -20,6 +20,14 @@ anonymous visitors get `/api/captures?publicOnly=true` (only AI-cleared photos �
 no people/dogs); signing in unlocks everything else. All auth is enforced
 server-side; the page only carries the public Firebase web config.
 
+## Where the site actually lives
+
+louielabs.com and www.louielabs.com are domain-mapped to the Cloud Run service
+**`louielabs-site`** in the GCP project **`louielabs-website`** (us-west1) —
+a *separate project* from the backend (`louielabs-animal-cams`). The service
+is an nginx container built from this folder's `Dockerfile` (just `index.html`
++ `preview.png`, no build step).
+
 ## Already done (nothing to do here)
 
 - **CORS**: PR #56 (merged + deployed) allowlists `https://louielabs.com`,
@@ -28,26 +36,20 @@ server-side; the page only carries the public Firebase web config.
   the right headers for these origins and nothing for others.
 - **Visual verification**: all pages exercised against production data from
   `http://localhost:3000` (see PR description for screenshots/details).
+- **Sign-in domains** (2026-07-13): `louielabs.com` and `www.louielabs.com`
+  are in Firebase *Authentication → Settings → Authorized domains*, so the
+  Google sign-in popup works on the public site.
 
 ## Deploy steps
 
-1. **Swap the file.** louielabs.com currently serves a single static
-   `index.html` (nginx-style etag, last-modified 2026-06-22) from a Google-
-   hosted service behind `ghs.googlehosted.com` — the same setup you deployed
-   the mockup to. Replace that file with `wildwatch-site/index.html` from this
-   repo, and ALSO serve `wildwatch-site/preview.png` at `/preview.png` — it's
-   the link-preview card iMessage/Discord/socials show (the page's meta tags
-   point at `https://louielabs.com/preview.png`). Redeploy/restart. (If it's a
-   Cloud Run nginx container: rebuild the image with both files,
-   `gcloud run deploy`. If it's simpler than that, you know your setup best.)
+1. **Merge to `main`.** The site auto-deploys: a Cloud Build trigger in the
+   `louielabs-website` project fires on pushes to `main` that touch
+   `wildwatch-site/**` and runs this folder's `cloudbuild.yaml` (build the
+   nginx image, deploy `louielabs-site`). Watch it in that project's Cloud
+   Build history (~2 min). Manual fallback, from `wildwatch-site/`:
+   `gcloud run deploy louielabs-site --project louielabs-website --region us-west1 --source .`
 
-2. **Authorize the domain for sign-in** (once): Firebase console →
-   *Authentication → Settings → Authorized domains* → add `louielabs.com`
-   (and `www.louielabs.com` if it resolves). Without this the Google sign-in
-   popup on louielabs.com fails with `auth/unauthorized-domain`; the anonymous
-   gallery still works.
-
-3. **Smoke-test on louielabs.com**:
+2. **Smoke-test on louielabs.com**:
    - Anonymous: Home/Library show real photos; Live shows Darius Cam + LL Cam 1.
    - Sign in with a @louielabs.com account: Settings lists the cameras and
      saved networks; try a harmless action (e.g. "Take photo").
