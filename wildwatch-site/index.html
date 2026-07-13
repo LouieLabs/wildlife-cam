@@ -312,20 +312,6 @@
     font-size: 10px; font-weight: 600; color: rgba(255,255,255,0.92);
     letter-spacing: 0.04em; text-transform: uppercase;
   }
-  /* Play/pause the burst right on the card — a clickable .video-badge. */
-  .burst-play {
-    position: absolute; top: 50%; left: 50%;
-    transform: translate(-50%, -50%);
-    width: 46px; height: 46px; border-radius: 50%;
-    background: rgba(20,30,22,0.55); backdrop-filter: blur(4px);
-    border: 1.5px solid rgba(255,255,255,0.6);
-    color: #fff; font-size: 15px; cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    padding-left: 3px;
-    transition: transform 0.18s, background 0.18s;
-  }
-  .burst-play:hover { transform: translate(-50%, -50%) scale(1.1); background: rgba(20,30,22,0.78); }
-  .burst-play.playing { padding-left: 0; }
   /* "N new photos" notice when the auto-refresh brings fresh captures in. */
   .new-pill {
     display: inline-flex; align-items: center; gap: 6px;
@@ -1329,6 +1315,10 @@
       <div class="lb-field"><label>Time of Day</label><span id="lbTime"></span></div>
       <div class="lb-field"><label>Notes</label><span id="lbNotes"></span></div>
       <hr class="lb-divider">
+      <button class="btn-save" id="lbPlayBtn" onclick="lbPlay()" style="width:100%;display:none;"
+        title="Play this burst like a mini movie — click again to pause.">
+        &#9654; Play burst
+      </button>
       <button class="btn-secondary" id="lbRotateBtn" onclick="lbRotate()" style="width:100%;"
         title="Turn this photo 90° — click again to keep turning. Signed-in rotations are saved for everyone; otherwise it only sticks on this device.">
         ⟳ Rotate 90°
@@ -1663,10 +1653,18 @@ function mergePhotos(cards) {
 }
 
 function refreshAfterPhotoChange() {
+  // If the lightbox is open, remember WHICH photo by id — new arrivals shift
+  // every index, and the viewer must stay on the same photo, not the same slot.
+  const lbOpen = document.getElementById('lightbox')?.classList.contains('open');
+  const openId = lbOpen && currentPhotos[lbIndex] ? currentPhotos[lbIndex].id : null;
   rebuildFilterOptions();       // make the Animal/Camera filters match the real data
   applyFiltersAndSearch();      // render the grid with the real photos
   buildCameras();               // keep the Live tiles in sync with the newest photos
   updateLoadMoreBtn();
+  if (openId !== null) {
+    const ni = currentPhotos.findIndex(p => p.id === openId);
+    if (ni >= 0 && ni !== lbIndex) { lbIndex = ni; updateLightbox(); }
+  }
   // If the Live grid is on screen, refresh its tiles with the new frames.
   if (document.getElementById('page-live').classList.contains('active')) renderLiveGrid();
   // Same for the Activity charts.
@@ -1897,53 +1895,45 @@ function groupOf(idx) {
   return currentGroups.find(g => idx >= g.start && idx < g.start + g.len) || null;
 }
 
-// ── BURST PLAYBACK ────────────────────────────────────────────────────────────
-// One click on a burst card's ▶ plays the event like a flip-book, right on the
-// card: the frames swap in chronological order, the badge counts "3/21", and
-// after one pass it settles back on the first frame. Clicking again stops it.
-// Only one card plays at a time; detection boxes hide during playback (they
-// belong to one specific frame).
-let burstPlayer = null;   // { timer, img, canvas, badge, btn, frames, pos, faceThumb, count }
+// ── BURST PLAYBACK (inside the lightbox) ─────────────────────────────────────
+// The grid stays plain: opening a burst card is what reveals the playback
+// controls. "Play burst" jumps to the event's first frame and auto-advances
+// chronologically at 450 ms per frame — updateLightbox() redraws the photo,
+// boxes, and "frame k of N" each step — then stops at the last frame.
+// Clicking again (or navigating manually, or closing) pauses it.
+let lbPlayTimer = null;
 
-function stopBurstPlay(restore = true) {
-  if (!burstPlayer) return;
-  clearInterval(burstPlayer.timer);
-  const bp = burstPlayer;
-  burstPlayer = null;
-  if (restore && bp.img && bp.img.isConnected) {
-    bp.img.src = bp.faceThumb;
-    bp.btn.innerHTML = '&#9654;';
-    bp.btn.classList.remove('playing');
-    if (bp.badge) bp.badge.innerHTML = `&#9656; ${bp.count} shots`;
-    if (bp.canvas) bp.canvas.style.display = '';
-  }
+function stopLbPlay() {
+  if (!lbPlayTimer) return;
+  clearInterval(lbPlayTimer);
+  lbPlayTimer = null;
+  const b = document.getElementById('lbPlayBtn');
+  if (b) b.innerHTML = '&#9654; Play burst';
 }
 
-function toggleBurstPlay(gi, btn, ev) {
-  if (ev) ev.stopPropagation();
-  if (burstPlayer && burstPlayer.btn === btn) { stopBurstPlay(); return; }   // pause
-  stopBurstPlay();
-  const g = currentGroups[gi];
+// Chronological neighbor inside a group: +1 = next frame, -1 = previous. The
+// photo list is usually newest-first, so "next chronologically" often means
+// stepping BACKWARD through the array — this maps it so callers never care.
+function chronoStep(g, idx, dir) {
+  const asc = currentPhotos[g.start].date <= currentPhotos[g.start + g.len - 1].date;
+  const ni = idx + (asc ? dir : -dir);
+  return (ni >= g.start && ni < g.start + g.len) ? ni : null;
+}
+
+function lbPlay() {
+  if (lbPlayTimer) { stopLbPlay(); return; }   // acts as pause
+  const g = groupOf(lbIndex);
   if (!g || g.len < 2) return;
-  const frames = currentPhotos.slice(g.start, g.start + g.len).sort((a, b) => a.date - b.date);
-  const card = btn.closest('.photo-card');
-  const img = card.querySelector('img');
-  const canvas = card.querySelector('canvas.det-overlay');
-  const badge = card.querySelector('.burst-badge');
-  if (!img) return;
-  if (canvas) canvas.style.display = 'none';
-  btn.innerHTML = '&#10074;&#10074;';   // ⏸
-  btn.classList.add('playing');
-  burstPlayer = { timer: 0, img, canvas, badge, btn, frames, pos: 0, faceThumb: frames[0].thumb, count: g.len };
-  img.src = frames[0].thumb;
-  if (badge) badge.textContent = `1/${frames.length}`;
-  burstPlayer.timer = setInterval(() => {
-    const bp = burstPlayer;
-    if (!bp || !bp.img.isConnected) { stopBurstPlay(false); return; }   // grid re-rendered under us
-    bp.pos++;
-    if (bp.pos >= bp.frames.length) { stopBurstPlay(); return; }        // one full pass, then rest
-    bp.img.src = bp.frames[bp.pos].thumb;
-    if (bp.badge) bp.badge.textContent = `${bp.pos + 1}/${bp.frames.length}`;
+  lbIndex = groupFaceIndex(currentPhotos, g);  // start the movie at frame 1
+  updateLightbox();
+  const btn = document.getElementById('lbPlayBtn');
+  if (btn) btn.innerHTML = '&#10074;&#10074; Pause';
+  lbPlayTimer = setInterval(() => {
+    const gg = groupOf(lbIndex);
+    const ni = gg ? chronoStep(gg, lbIndex, 1) : null;
+    if (ni === null) { stopLbPlay(); return; } // reached the last frame
+    lbIndex = ni;
+    updateLightbox();
   }, 450);
 }
 
@@ -1964,7 +1954,6 @@ function renderGrid(photos) {
   if (!photos.length) { grid.innerHTML = ''; empty.classList.add('visible'); currentPhotos = photos; return; }
   empty.classList.remove('visible');
   currentPhotos = photos;
-  stopBurstPlay(false);    // the cards are about to be rebuilt — drop any playback
   const facePhotos = [];   // index-aligned with the cards, for hookDetOverlays
   grid.innerHTML = groups.map((g, gi) => {
     const faceIdx = groupFaceIndex(photos, g);
@@ -1977,10 +1966,7 @@ function renderGrid(photos) {
       : `<img src="${p.thumb}" alt="${p.animal}" loading="lazy"><canvas class="det-overlay"></canvas>`;
     // Card title: camera name, plus what the AI found (e.g. "DARIUS · RED FOX").
     const tag = p.camera.replace(' Cam', '') + (p.animal !== 'Unknown' ? ' · ' + p.animal : '');
-    const burst = g.len > 1
-      ? `<div class="burst-badge">&#9656; ${g.len} shots</div>
-         <button class="burst-play" title="Play this burst like a mini movie" onclick="toggleBurstPlay(${gi}, this, event)">&#9654;</button>`
-      : '';
+    const burst = g.len > 1 ? `<div class="burst-badge">&#9656; ${g.len} shots</div>` : '';
     return `
     <div class="photo-card" onclick="openLightbox(${faceIdx})">
       ${media}
@@ -2101,6 +2087,7 @@ function openLightbox(idx) {
   if (p) history.replaceState(null, '', '#photo=' + encodeURIComponent(p.id));
 }
 function closeLightbox() {
+  stopLbPlay();   // don't keep flipping frames behind a closed lightbox
   const vid = document.getElementById('lbVideo');
   if (vid) vid.pause();
   document.getElementById('lightbox').classList.remove('open');
@@ -2161,7 +2148,18 @@ function openPhotoById(rawId) {
   else showToast("That photo isn't in the gallery (it may be private or older than what's loaded)");
 }
 function closeLightboxOnBg(e) { if (e.target === document.getElementById('lightbox')) closeLightbox(); }
-function lbNav(dir) { lbIndex = (lbIndex + dir + currentPhotos.length) % currentPhotos.length; updateLightbox(); }
+// The arrows flip through THIS burst only (→ = next frame chronologically),
+// stopping at the ends — to see a different event, close this one and open its
+// card. Single photos have no arrows at all (hidden in updateLightbox).
+function lbNav(dir) {
+  stopLbPlay();   // touching the arrows takes over from auto-play
+  const g = groupOf(lbIndex);
+  if (!g || g.len < 2) return;
+  const ni = chronoStep(g, lbIndex, dir);
+  if (ni === null) return;   // at the first/last frame of the burst
+  lbIndex = ni;
+  updateLightbox();
+}
 
 // Rotate the open photo another 90°. Signed in -> saved on the server so EVERY
 // viewer sees it upright; anonymous (or server hiccup) -> kept in localStorage
@@ -2240,21 +2238,32 @@ function updateLightbox() {
   document.getElementById('lbDot').style.background = p.color;
   document.getElementById('lbDate').textContent = p.dateStr;
   // Inside a burst, say where this frame sits (chronological order), so the
-  // side arrows read as "flipping through the event".
+  // side arrows read as "flipping through the event". The arrows belong to the
+  // burst: hidden on single photos, and each one disappears at its end of the
+  // run (no wrapping into a different event).
   const g = groupOf(lbIndex);
+  const inBurst = !!(g && g.len > 1);
+  let pos = 0;
+  if (inBurst) {
+    for (let i = g.start; i < g.start + g.len; i++) {
+      if (currentPhotos[i].date <= p.date) pos++;
+    }
+  }
   const burstRow = document.getElementById('lbBurstRow');
   if (burstRow) {
-    if (g && g.len > 1) {
-      let pos = 0;
-      for (let i = g.start; i < g.start + g.len; i++) {
-        if (currentPhotos[i].date <= p.date) pos++;
-      }
+    if (inBurst) {
       document.getElementById('lbBurst').textContent = `frame ${pos} of ${g.len} — use the arrows to flip through`;
       burstRow.style.display = '';
     } else {
       burstRow.style.display = 'none';
     }
   }
+  const prevBtn = document.querySelector('.lb-prev');
+  const nextBtn = document.querySelector('.lb-next');
+  if (prevBtn) prevBtn.style.display = inBurst && pos > 1 ? '' : 'none';
+  if (nextBtn) nextBtn.style.display = inBurst && pos < g.len ? '' : 'none';
+  const playBtn = document.getElementById('lbPlayBtn');
+  if (playBtn) playBtn.style.display = inBurst ? '' : 'none';
   document.getElementById('lbCamera').textContent = p.camera;
   document.getElementById('lbLocation').textContent = p.location || '—';
   document.getElementById('lbTime').textContent = p.timeOfDay;
