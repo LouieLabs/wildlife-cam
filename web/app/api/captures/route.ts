@@ -45,6 +45,13 @@ type CaptureCard = {
   humidityPercent: number | null;
   public: boolean;
   detections: Detection[];
+  // Display rotation in degrees (0/90/180/270), set by an admin via
+  // PATCH /api/captures/[id] when a camera was mounted sideways. Applied by
+  // every gallery viewer so the photo reads upright for everyone.
+  rotation: number;
+  // Curation flag (PATCH /api/captures/[id] {hidden}). Public view never sees
+  // hidden captures; signed-in views see them flagged.
+  hidden: boolean;
 };
 
 // Existing pipeline writes detections[].box = [x, y, w, h] (array). The gallery
@@ -96,6 +103,12 @@ function toCaptureCard(id: string, data: any, imageUrl: string | null): CaptureC
     // are shown to unauthenticated visitors.
     public: data.public === true,
     detections,
+    // Only the four right angles are meaningful; anything else (missing field,
+    // legacy junk) renders as "no rotation" rather than a skewed layout.
+    rotation: [90, 180, 270].includes(data.rotation) ? data.rotation : 0,
+    // Signed-in views receive hidden captures with this flag so the gallery
+    // can mark them and offer "Unhide"; the public view never gets them.
+    hidden: data.hidden === true,
   };
 }
 
@@ -141,11 +154,29 @@ export async function GET(req: NextRequest) {
 
     // Overfetch with a single ordered query, then filter in memory. Keeps us
     // off composite indexes for the small data sizes we expect (<1000 docs).
-    const snap = await adminFirestore
+    //
+    // Pagination: when `before` is present it becomes a REAL range on the
+    // query (not just the in-memory filter below) — otherwise a page-2 request
+    // could only ever see the newest OVERFETCH docs and older history would be
+    // unreachable. A range + orderBy on the SAME field needs no composite
+    // index. `before` accepts epoch-ms or an ISO date string.
+    // Both cursors accept epoch-ms ("1720000000000") or an ISO date string;
+    // NaN (unparseable input) disables that cursor rather than erroring.
+    const parseCursor = (v: string | undefined): number | null => {
+      if (!v) return null;
+      const ms = /^\d+$/.test(v) ? Number(v) : Date.parse(v);
+      return Number.isFinite(ms) ? ms : null;
+    };
+    const beforeMs = parseCursor(before);
+    const afterMs = parseCursor(after);
+
+    let query = adminFirestore
       .collection(COLLECTION)
-      .orderBy("capturedAt", "desc")
-      .limit(OVERFETCH)
-      .get();
+      .orderBy("capturedAt", "desc");
+    if (beforeMs !== null) {
+      query = query.where("capturedAt", "<", beforeMs);
+    }
+    const snap = await query.limit(OVERFETCH).get();
 
     let docs = snap.docs
       .map((d) => ({ id: d.id, data: d.data() as any }))
@@ -153,10 +184,13 @@ export async function GET(req: NextRequest) {
       .filter(({ data }) => (data.env || "prod") === APP_ENV);
 
     if (restrictToPublic) docs = docs.filter(({ data }) => data.public === true);
+    // Curation: hidden captures never reach the public view. Signed-in users
+    // keep seeing them (flagged in the card) so they can unhide.
+    if (restrictToPublic) docs = docs.filter(({ data }) => data.hidden !== true);
     if (species) docs = docs.filter(({ data }) => data.species === species);
     if (cameraId) docs = docs.filter(({ data }) => data.deviceId === cameraId);
-    if (after) docs = docs.filter(({ data }) => new Date(data.capturedAt).toISOString() >= after);
-    if (before) docs = docs.filter(({ data }) => new Date(data.capturedAt).toISOString() <= before);
+    if (afterMs !== null) docs = docs.filter(({ data }) => new Date(data.capturedAt).getTime() >= afterMs);
+    if (beforeMs !== null) docs = docs.filter(({ data }) => new Date(data.capturedAt).getTime() < beforeMs);
 
     docs = docs.slice(0, limit);
 

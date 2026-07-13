@@ -35,9 +35,11 @@ server-side; the page only carries the public Firebase web config.
    `index.html` (nginx-style etag, last-modified 2026-06-22) from a Google-
    hosted service behind `ghs.googlehosted.com` — the same setup you deployed
    the mockup to. Replace that file with `wildwatch-site/index.html` from this
-   repo and redeploy/restart the service. (If it's a Cloud Run nginx container:
-   rebuild the image with the new file, `gcloud run deploy`. If it's simpler
-   than that, you know your setup best.)
+   repo, and ALSO serve `wildwatch-site/preview.png` at `/preview.png` — it's
+   the link-preview card iMessage/Discord/socials show (the page's meta tags
+   point at `https://louielabs.com/preview.png`). Redeploy/restart. (If it's a
+   Cloud Run nginx container: rebuild the image with both files,
+   `gcloud run deploy`. If it's simpler than that, you know your setup best.)
 
 2. **Authorize the domain for sign-in** (once): Firebase console →
    *Authentication → Settings → Authorized domains* → add `louielabs.com`
@@ -50,6 +52,11 @@ server-side; the page only carries the public Firebase web config.
    - Sign in with a @louielabs.com account: Settings lists the cameras and
      saved networks; try a harmless action (e.g. "Take photo").
 
+4. **Launch-day clean slate** (either admin, after PR #58 is deployed):
+   sign in on the site → Settings → Public Gallery → "Hide all photos taken
+   before now". Bench-test photos vanish from the public view (reversible per
+   photo via the viewer's Unhide button; nothing is deleted).
+
 ## Rollback
 
 Keep the current `index.html` — swapping it back fully reverts the site.
@@ -57,10 +64,14 @@ No schema, backend, or firmware changes depend on this page.
 
 ## Known limitations (by design, not bugs)
 
-- Every animal currently shows as "Unknown" — the Gemini labeling isn't naming
-  species yet, so Home is empty until the AI starts finding animals/people.
-  The boxes + titles light up automatically once it does.
-- AI analysis of new photos is triggered while dashboard/gallery pages are
-  open (`/api/analyze-pending`); a scheduled trigger is a good follow-up.
-- View-only photo rotation and per-browser stream addresses are localStorage,
-  not synced.
+- AI analysis runs while any gallery/dashboard tab is open (the site pings
+  `/api/analyze-cron` every 2 min — needs PR #59 deployed). For fully
+  autonomous analysis, add the optional Cloud Scheduler job from PR #59's
+  description.
+- Photo rotation: a signed-in user's rotation is SAVED for everyone (PATCH
+  /api/captures/[id] — needs PR #58 deployed); anonymous viewers' rotations
+  stay localStorage, this-device-only. Per-camera stream addresses stay
+  localStorage.
+- The Library loads the newest 100 photos and pages back via "Load older
+  photos" (deep history needs PR #58's cursor; until then it reaches only the
+  newest ~200).
