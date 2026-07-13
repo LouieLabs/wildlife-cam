@@ -97,4 +97,57 @@ describe('PATCH /api/captures/[id] (save display rotation)', () => {
     expect(res.status).toBe(200);
     expect(m.update).toHaveBeenCalledWith(expect.objectContaining({ rotation: 0 }));
   });
+
+  // ── hidden (public-gallery curation) ──────────────────────────────────────
+
+  it('hides a capture with an audit trail', async () => {
+    const res = await PATCH(
+      makeRequest({ method: 'POST', body: { hidden: true } }),
+      ctx('abc123')
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ id: 'abc123', hidden: true });
+    expect(m.update).toHaveBeenCalledWith(
+      expect.objectContaining({ hidden: true, hiddenBy: FAKE_USER.email })
+    );
+  });
+
+  it('unhides with hidden:false', async () => {
+    const res = await PATCH(
+      makeRequest({ method: 'POST', body: { hidden: false } }),
+      ctx('abc123')
+    );
+    expect(res.status).toBe(200);
+    expect(m.update).toHaveBeenCalledWith(expect.objectContaining({ hidden: false }));
+  });
+
+  it('rejects a non-boolean hidden', async () => {
+    const res = await PATCH(
+      makeRequest({ method: 'POST', body: { hidden: 'yes' } }),
+      ctx('abc123')
+    );
+    expect(res.status).toBe(400);
+    expect(m.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects a body with neither rotation nor hidden', async () => {
+    const res = await PATCH(
+      makeRequest({ method: 'POST', body: {} }),
+      ctx('abc123')
+    );
+    expect(res.status).toBe(400);
+    expect(m.update).not.toHaveBeenCalled();
+  });
+
+  it('accepts rotation and hidden together in one call', async () => {
+    const res = await PATCH(
+      makeRequest({ method: 'POST', body: { rotation: 90, hidden: true } }),
+      ctx('abc123')
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ id: 'abc123', rotation: 90, hidden: true });
+    expect(m.update).toHaveBeenCalledWith(
+      expect.objectContaining({ rotation: 90, hidden: true })
+    );
+  });
 });

@@ -18,11 +18,14 @@ export async function OPTIONS(req: NextRequest) {
 }
 
 // PATCH /api/captures/[id]
-// Body: { rotation: 0 | 90 | 180 | 270 }
-// Saves a display rotation onto one capture, so a photo from a sideways-
-// mounted camera reads upright for EVERY viewer (the gallery applies it on
-// render). Signed-in @louielabs.com users only -- anonymous visitors can
-// still rotate locally in their own browser, it just isn't saved.
+// Body: { rotation?: 0 | 90 | 180 | 270, hidden?: boolean } -- at least one.
+// - rotation: display rotation so a photo from a sideways-mounted camera reads
+//   upright for EVERY viewer (the gallery applies it on render).
+// - hidden: curation for the public gallery. Hidden captures disappear for
+//   anonymous visitors; signed-in users still see them (marked) so they can
+//   unhide. Nothing is deleted.
+// Signed-in @louielabs.com users only -- anonymous visitors can still rotate
+// locally in their own browser, it just isn't saved.
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const cors = corsHeaders(req);
   try {
@@ -45,9 +48,28 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     }
 
     const body = await req.json().catch(() => ({}));
-    const rotation = Number(body.rotation);
-    if (!ALLOWED_ROTATIONS.has(rotation)) {
-      return NextResponse.json({ error: 'rotation must be 0, 90, 180, or 270' }, { status: 400, headers: cors });
+    // Build the update from whichever fields were sent; reject a request that
+    // carries neither (or an invalid value) rather than writing nothing.
+    const update: Record<string, unknown> = {};
+    if (body.rotation !== undefined) {
+      const rotation = Number(body.rotation);
+      if (!ALLOWED_ROTATIONS.has(rotation)) {
+        return NextResponse.json({ error: 'rotation must be 0, 90, 180, or 270' }, { status: 400, headers: cors });
+      }
+      update.rotation = rotation;
+      update.rotatedBy = user.email;
+      update.rotatedAt = Date.now();
+    }
+    if (body.hidden !== undefined) {
+      if (typeof body.hidden !== 'boolean') {
+        return NextResponse.json({ error: 'hidden must be true or false' }, { status: 400, headers: cors });
+      }
+      update.hidden = body.hidden;
+      update.hiddenBy = user.email;
+      update.hiddenAt = Date.now();
+    }
+    if (Object.keys(update).length === 0) {
+      return NextResponse.json({ error: 'Send rotation and/or hidden' }, { status: 400, headers: cors });
     }
 
     const ref = adminFirestore.collection(COLLECTION).doc(id);
@@ -56,13 +78,12 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       return NextResponse.json({ error: 'Capture not found' }, { status: 404, headers: cors });
     }
 
-    await ref.update({
-      rotation,
-      rotatedBy: user.email,
-      rotatedAt: Date.now(),
-    });
+    await ref.update(update);
 
-    return NextResponse.json({ id, rotation }, { headers: cors });
+    const out: Record<string, unknown> = { id };
+    if (update.rotation !== undefined) out.rotation = update.rotation;
+    if (update.hidden !== undefined) out.hidden = update.hidden;
+    return NextResponse.json(out, { headers: cors });
   } catch (err) {
     if (err instanceof HttpError) {
       return NextResponse.json({ error: err.message }, { status: err.status, headers: cors });

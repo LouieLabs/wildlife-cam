@@ -115,4 +115,23 @@ describe('GET /api/captures', () => {
     const cards = await res.json();
     expect(cards.map((c: any) => c.id)).toEqual(['pub1', 'priv1']);
   });
+
+  it('anonymous visitors never see hidden captures', async () => {
+    m.get.mockResolvedValueOnce({
+      docs: [doc('shown1'), doc('hid1', { hidden: true })],
+    });
+    const res = await GET(makeRequest({ url: 'http://localhost/api/captures' }));
+    const cards = await res.json();
+    expect(cards.map((c: any) => c.id)).toEqual(['shown1']);
+  });
+
+  it('signed-in users see hidden captures, flagged', async () => {
+    m.tryLouieLabsUser.mockResolvedValueOnce(FAKE_USER);
+    m.get.mockResolvedValueOnce({
+      docs: [doc('shown1'), doc('hid1', { hidden: true })],
+    });
+    const res = await GET(makeRequest({ url: 'http://localhost/api/captures' }));
+    const cards = await res.json();
+    expect(cards.map((c: any) => [c.id, c.hidden])).toEqual([['shown1', false], ['hid1', true]]);
+  });
 });

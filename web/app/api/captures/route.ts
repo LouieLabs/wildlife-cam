@@ -49,6 +49,9 @@ type CaptureCard = {
   // PATCH /api/captures/[id] when a camera was mounted sideways. Applied by
   // every gallery viewer so the photo reads upright for everyone.
   rotation: number;
+  // Curation flag (PATCH /api/captures/[id] {hidden}). Public view never sees
+  // hidden captures; signed-in views see them flagged.
+  hidden: boolean;
 };
 
 // Existing pipeline writes detections[].box = [x, y, w, h] (array). The gallery
@@ -103,6 +106,9 @@ function toCaptureCard(id: string, data: any, imageUrl: string | null): CaptureC
     // Only the four right angles are meaningful; anything else (missing field,
     // legacy junk) renders as "no rotation" rather than a skewed layout.
     rotation: [90, 180, 270].includes(data.rotation) ? data.rotation : 0,
+    // Signed-in views receive hidden captures with this flag so the gallery
+    // can mark them and offer "Unhide"; the public view never gets them.
+    hidden: data.hidden === true,
   };
 }
 
@@ -178,6 +184,9 @@ export async function GET(req: NextRequest) {
       .filter(({ data }) => (data.env || "prod") === APP_ENV);
 
     if (restrictToPublic) docs = docs.filter(({ data }) => data.public === true);
+    // Curation: hidden captures never reach the public view. Signed-in users
+    // keep seeing them (flagged in the card) so they can unhide.
+    if (restrictToPublic) docs = docs.filter(({ data }) => data.hidden !== true);
     if (species) docs = docs.filter(({ data }) => data.species === species);
     if (cameraId) docs = docs.filter(({ data }) => data.deviceId === cameraId);
     if (afterMs !== null) docs = docs.filter(({ data }) => new Date(data.capturedAt).getTime() >= afterMs);
