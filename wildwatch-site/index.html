@@ -6,6 +6,21 @@
 <title>WildWatch</title>
 <!-- Tab icon: the WildWatch beaver (an emoji drawn into an SVG = zero image files). -->
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20100%20100'%3E%3Ctext%20y='0.9em'%20font-size='90'%3E%F0%9F%A6%AB%3C/text%3E%3C/svg%3E">
+
+<!-- Link previews: what iMessage / Discord / Slack / socials show when a
+     louielabs.com link is shared. preview.png ships alongside this file. -->
+<meta name="description" content="Live wildlife cameras from the Louie Labs backyard — AI spots and names the animals. Photos with people are never shown publicly.">
+<meta name="theme-color" content="#2C4A35">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="WildWatch">
+<meta property="og:title" content="WildWatch — Louie Labs wildlife cameras">
+<meta property="og:description" content="Live backyard wildlife, spotted and named by AI. See what walked by last night.">
+<meta property="og:url" content="https://louielabs.com/">
+<meta property="og:image" content="https://louielabs.com/preview.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="WildWatch — Louie Labs wildlife cameras">
+<meta name="twitter:description" content="Live backyard wildlife, spotted and named by AI. See what walked by last night.">
+<meta name="twitter:image" content="https://louielabs.com/preview.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -1283,6 +1298,14 @@
       <div class="storage-label" id="notifStatus" style="margin-top:12px;"></div>
     </div>
 
+    <!-- Public-gallery curation: the launch-day clean-slate button. -->
+    <div class="settings-section">
+      <h3>Public Gallery</h3>
+      <p>Individual photos can be hidden from the photo viewer (open a photo → "Hide from public"). For launch day, this hides <strong>every photo taken before this moment</strong> in one go — test shots disappear from the public site, but signed-in users still see them (marked "Hidden") and can unhide keepers. Nothing is deleted.</p>
+      <button class="btn-save" onclick="sweepHideBefore()">🧹 Hide all photos taken before now</button>
+      <div class="storage-label" id="sweepStatus" style="margin-top:10px;"></div>
+    </div>
+
     <!-- Cameras: the real fleet from the cloud (same data as the admin dashboard).
          Rename / Wi-Fi / capture settings / delete, plus a link to the USB
          "Set up a camera" tool for adding a new one. Rendered by renderSettings(). -->
@@ -1351,6 +1374,10 @@
         <button class="btn-secondary" style="flex:1;" onclick="lbDownload()" title="Save this photo to your device">⬇ Download</button>
         <button class="btn-secondary" style="flex:1;" onclick="lbShare()" title="Copy a link that opens straight to this photo">🔗 Share</button>
       </div>
+      <button class="btn-secondary" id="lbHideBtn" onclick="lbToggleHide()" style="width:100%;display:none;"
+        title="Hide this photo from the public gallery (signed-in viewers still see it, marked). Nothing is deleted — you can unhide it any time.">
+        🙈 Hide from public
+      </button>
     </div>
   </div>
 </div>
@@ -1623,6 +1650,9 @@ function mapCaptureToPhoto(card, i) {
     // Display rotation saved on the server (0/90/180/270) -- applies for every
     // viewer. A local (this-browser-only) override may sit on top; see effRot().
     rotation: [90, 180, 270].includes(card.rotation) ? card.rotation : 0,
+    // Curation flag: hidden photos never reach anonymous visitors (the server
+    // filters them out); signed-in users see them marked, with Unhide.
+    hidden: card.hidden === true,
   };
 }
 
@@ -2184,10 +2214,15 @@ function renderGrid(photos) {
     // Card title: camera name, plus what the AI found (e.g. "DARIUS · RED FOX").
     const tag = p.camera.replace(' Cam', '') + (p.animal !== 'Unknown' ? ' · ' + p.animal : '');
     const burst = g.len > 1 ? `<div class="burst-badge">&#9656; ${g.len} shots</div>` : '';
+    // Signed-in curation view: hidden photos stay listed but dimmed + tagged.
+    // (Anonymous visitors never receive hidden photos — server-side filter.)
+    const isHidden = currentUser && p.hidden;
+    const hiddenChip = isHidden
+      ? `<div class="burst-badge" style="top:${g.len > 1 ? '34px' : '10px'};background:rgba(155,40,40,0.72);">Hidden</div>` : '';
     return `
-    <div class="photo-card" onclick="openLightbox(${faceIdx})">
+    <div class="photo-card"${isHidden ? ' style="opacity:0.55;"' : ''} onclick="openLightbox(${faceIdx})">
       ${media}
-      ${burst}
+      ${burst}${hiddenChip}
       <div class="photo-tag">${tag}</div>
       <div class="photo-label">
         <div class="label-animal">
@@ -2310,6 +2345,59 @@ function closeLightbox() {
   document.getElementById('lightbox').classList.remove('open');
   document.body.style.overflow = '';
   history.replaceState(null, '', location.pathname + location.search);   // drop #photo=
+}
+
+// Launch-day sweep: hide every photo taken before this moment from the public
+// gallery. Reversible per photo (Unhide in the viewer); nothing is deleted.
+async function sweepHideBefore() {
+  if (!currentUser) { showToast('Sign in with your @louielabs.com account first'); return; }
+  const cutoff = Date.now();
+  if (!confirm(
+    'Hide ALL photos taken before right now from the public gallery?\n\n' +
+    'Visitors will no longer see them. You (signed in) still will — marked "Hidden" — ' +
+    'and you can unhide any keeper from its photo viewer.\n\nNothing is deleted.'
+  )) return;
+  const status = document.getElementById('sweepStatus');
+  if (status) status.textContent = 'Sweeping…';
+  try {
+    const res = await authedFetch(`${API_BASE}/api/captures/hide-before`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ before: cutoff }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'HTTP ' + res.status);
+    if (status) status.textContent = `Done — ${data.hidden} photo${data.hidden !== 1 ? 's' : ''} hidden` +
+      (data.alreadyHidden ? ` (${data.alreadyHidden} already were)` : '') + '.';
+    showToast('Public gallery swept clean 🧹');
+    loadCaptures();   // refresh so the Hidden chips appear
+  } catch (e) {
+    if (status) status.textContent = 'Sweep failed — is the backend update (PR #58) deployed?';
+  }
+}
+
+// Hide/unhide the open photo from the public gallery (signed-in only; the
+// server double-checks). The photo stays in signed-in views, marked, so the
+// decision is always reversible.
+async function lbToggleHide() {
+  const p = currentPhotos[lbIndex];
+  if (!p || !currentUser) return;
+  const next = !p.hidden;
+  try {
+    const res = await authedFetch(`${API_BASE}/api/captures/${encodeURIComponent(p.id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hidden: next }),
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    p.hidden = next;
+    showToast(next ? 'Hidden from the public gallery' : 'Visible to the public again');
+    updateLightbox();
+    lastGridSig = '';            // force the grid to re-render its HIDDEN chips
+    applyFiltersAndSearch();
+  } catch (e) {
+    showToast('Could not update — is the backend update (PR #58) deployed?');
+  }
 }
 
 // ── DOWNLOAD / SHARE / DEEP LINK ──────────────────────────────────────────────
@@ -2481,6 +2569,13 @@ function updateLightbox() {
   if (nextBtn) nextBtn.style.display = inBurst && pos < g.len ? '' : 'none';
   const playBtn = document.getElementById('lbPlayBtn');
   if (playBtn) playBtn.style.display = inBurst ? '' : 'none';
+  // Hide/Unhide is a curation tool — signed-in users only (the server enforces
+  // it too; this just avoids showing a button anonymous visitors can't use).
+  const hideBtn = document.getElementById('lbHideBtn');
+  if (hideBtn) {
+    hideBtn.style.display = currentUser ? '' : 'none';
+    hideBtn.innerHTML = p.hidden ? '👁 Unhide (show to the public again)' : '🙈 Hide from public';
+  }
   document.getElementById('lbCamera').textContent = p.camera;
   document.getElementById('lbLocation').textContent = p.location || '—';
   document.getElementById('lbTime').textContent = p.timeOfDay;
