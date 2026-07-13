@@ -3,7 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>WildWatch — Camera Library</title>
+<title>WildWatch</title>
+<!-- Tab icon: the WildWatch beaver (an emoji drawn into an SVG = zero image files). -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20100%20100'%3E%3Ctext%20y='0.9em'%20font-size='90'%3E%F0%9F%A6%AB%3C/text%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -1259,6 +1261,22 @@
       <div id="acctBody"><p>Checking sign-in…</p></div>
     </div>
 
+    <!-- Detection notifications: per-browser (localStorage), no account needed.
+         Chips rendered by renderNotifSettings() from the animals actually seen. -->
+    <div class="settings-section">
+      <h3>Detection Notifications</h3>
+      <p>Get a browser notification when a camera spots something. Works while WildWatch is open in a tab (even in the background) — this device only.</p>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+        <div class="live-switch" id="notifSwitch" onclick="toggleNotifs()"></div>
+        <span style="font-size:13px;">Notify me about new detections</span>
+      </div>
+      <p style="font-size:12.5px;color:var(--text-2);margin-bottom:8px;">
+        Only these animals — leave them all unselected to be notified about <em>every</em> detection:
+      </p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;" id="notifAnimalChips"></div>
+      <div class="storage-label" id="notifStatus" style="margin-top:12px;"></div>
+    </div>
+
     <!-- Cameras: the real fleet from the cloud (same data as the admin dashboard).
          Rename / Wi-Fi / capture settings / delete, plus a link to the USB
          "Set up a camera" tool for adding a new one. Rendered by renderSettings(). -->
@@ -1680,14 +1698,18 @@ async function loadCaptures() {
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const cards = await res.json();
     const wasEmpty = allPhotos.length === 0;
-    // Count genuinely-new arrivals BEFORE merging, so the refresh can announce
-    // them ("↑ 3 new photos") instead of slipping them in silently.
+    // Spot genuinely-new arrivals BEFORE merging, so the refresh can announce
+    // them (pill + notifications) instead of slipping them in silently.
+    let freshIds = null;
     if (!wasEmpty) {
       const known = new Set(allPhotos.map(p => p.id));
-      const fresh = cards.filter(c => c.id && !known.has(c.id)).length;
-      if (fresh > 0) announceNewPhotos(fresh);
+      freshIds = new Set(cards.filter(c => c.id && !known.has(c.id)).map(c => c.id));
+      if (freshIds.size > 0) announceNewPhotos(freshIds.size);
     }
     mergePhotos(cards);
+    if (freshIds && freshIds.size) {
+      notifyDetections(allPhotos.filter(p => freshIds.has(p.id)));
+    }
     // A full first page suggests there's history beyond it. Only decide this on
     // the FIRST load; afterwards loadMoreCaptures() owns the flag.
     if (wasEmpty) hasMoreHistory = cards.length >= PAGE_SIZE;
@@ -1756,6 +1778,97 @@ function dismissNewPill() {
   const pill = document.getElementById('newPhotosPill');
   if (pill) pill.style.display = 'none';
   window.scrollTo({ top: 0, behavior: 'smooth' });   // newest photos live at the top
+}
+
+// ── DETECTION NOTIFICATIONS ───────────────────────────────────────────────────
+// Per-browser (localStorage) — the refresh loop fires a browser notification
+// when a NEW photo is a detection matching the chosen animals. No animals
+// chosen = notify on every detection. Only works while a WildWatch tab is
+// open; closed-browser push would need a service worker + messaging service.
+const NOTIF_ENABLED_KEY = 'wildwatch.notif.enabled';
+const NOTIF_ANIMALS_KEY = 'wildwatch.notif.animals';
+
+const notifEnabled = () => localStorage.getItem(NOTIF_ENABLED_KEY) === 'true'
+  && 'Notification' in window && Notification.permission === 'granted';
+const notifAnimals = () => { try { return JSON.parse(localStorage.getItem(NOTIF_ANIMALS_KEY) || '[]'); } catch { return []; } };
+
+function toggleNotifs() {
+  const status = document.getElementById('notifStatus');
+  if (localStorage.getItem(NOTIF_ENABLED_KEY) === 'true') {
+    localStorage.setItem(NOTIF_ENABLED_KEY, 'false');
+    renderNotifSettings();
+    return;
+  }
+  if (!('Notification' in window)) {
+    if (status) status.textContent = 'This browser does not support notifications.';
+    return;
+  }
+  Notification.requestPermission().then((perm) => {
+    if (perm === 'granted') {
+      localStorage.setItem(NOTIF_ENABLED_KEY, 'true');
+      showToast('Notifications on — try walking past a camera!');
+    } else if (status) {
+      status.textContent = 'Notifications are blocked for this site — allow them in your browser settings, then try again.';
+    }
+    renderNotifSettings();
+  });
+}
+
+function toggleNotifAnimal(name) {
+  const list = notifAnimals();
+  const i = list.findIndex((a) => a.toLowerCase() === name.toLowerCase());
+  if (i >= 0) list.splice(i, 1); else list.push(name);
+  localStorage.setItem(NOTIF_ANIMALS_KEY, JSON.stringify(list));
+  renderNotifSettings();
+}
+
+function renderNotifSettings() {
+  const sw = document.getElementById('notifSwitch');
+  if (!sw) return;
+  const on = localStorage.getItem(NOTIF_ENABLED_KEY) === 'true';
+  sw.classList.toggle('on', on);
+  // Chips: every animal the AI has actually seen here, plus Person (privacy-
+  // relevant and always worth an option). More appear as the AI finds them.
+  const seen = [...new Set(allPhotos.map((p) => p.animal).filter((a) => a !== 'Unknown'))];
+  if (!seen.some((a) => /person/i.test(a))) seen.push('Person');
+  seen.sort();
+  const wanted = notifAnimals().map((a) => a.toLowerCase());
+  const chips = document.getElementById('notifAnimalChips');
+  if (chips) {
+    chips.innerHTML = seen.map((a) => {
+      const act = wanted.includes(a.toLowerCase()) ? ' active' : '';
+      return `<span class="filter-chip${act}" onclick="toggleNotifAnimal('${a.replace(/'/g, "\\'")}')">${a}</span>`;
+    }).join('');
+  }
+  const status = document.getElementById('notifStatus');
+  if (status && on) {
+    const list = notifAnimals();
+    status.textContent = list.length
+      ? `Watching for: ${list.join(', ')}`
+      : 'Watching for every detection.';
+  } else if (status && !on) {
+    status.textContent = '';
+  }
+}
+
+function notifyDetections(freshPhotos) {
+  if (!notifEnabled()) return;
+  const wanted = notifAnimals().map((a) => a.toLowerCase());
+  for (const p of freshPhotos) {
+    if (!isDetection(p)) continue;
+    if (wanted.length && !wanted.includes(p.animal.toLowerCase())) continue;
+    try {
+      const title = p.animal !== 'Unknown'
+        ? `${p.animal} spotted at ${p.camera}!`
+        : `Something spotted at ${p.camera}!`;
+      const n = new Notification(title, {
+        body: `${p.dateStr} — click to see the photo`,
+        icon: p.thumb || undefined,
+        tag: 'wildwatch-' + p.id,   // replaces rather than stacks per photo
+      });
+      n.onclick = () => { window.focus(); openPhotoById(String(p.id)); n.close(); };
+    } catch { /* some mobile browsers need a service worker — fail quietly */ }
+  }
 }
 
 // The Animal/Camera filter chips are hardcoded for the demo; rebuild them from
@@ -2554,6 +2667,7 @@ function showPage(name, btn) {
   if (name === 'settings') {
     Promise.all([loadDevices(), loadNetworks()]).then(renderSettings);
     renderSettings();   // render immediately; live data fills in
+    renderNotifSettings();
   }
 }
 
@@ -3117,6 +3231,18 @@ firebase.auth().onAuthStateChanged(async (u) => {
 
 // Keep the gallery fresh: new uploads appear within a minute, no reload needed.
 setInterval(loadCaptures, 60000);
+
+// Nudge the in-cloud AI while anyone has the site open, so new photos get
+// analyzed without a signed-in dashboard tab. Fire-and-forget: the server
+// self-throttles (60 s global lock) and treats "nothing pending" as a free
+// no-op, so this costs nothing when the cameras are quiet. Until the backend
+// route deploys this 404s harmlessly.
+function kickAnalysis() {
+  try { fetch(`${API_BASE}/api/analyze-cron`, { method: 'POST' }).catch(() => {}); }
+  catch { /* older browsers: never let this break the gallery */ }
+}
+kickAnalysis();
+setInterval(kickAnalysis, 120000);
 
 </script>
 </body>
