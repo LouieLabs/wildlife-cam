@@ -312,6 +312,20 @@
     font-size: 10px; font-weight: 600; color: rgba(255,255,255,0.92);
     letter-spacing: 0.04em; text-transform: uppercase;
   }
+  /* Play/pause the burst right on the card — a clickable .video-badge. */
+  .burst-play {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 46px; height: 46px; border-radius: 50%;
+    background: rgba(20,30,22,0.55); backdrop-filter: blur(4px);
+    border: 1.5px solid rgba(255,255,255,0.6);
+    color: #fff; font-size: 15px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    padding-left: 3px;
+    transition: transform 0.18s, background 0.18s;
+  }
+  .burst-play:hover { transform: translate(-50%, -50%) scale(1.1); background: rgba(20,30,22,0.78); }
+  .burst-play.playing { padding-left: 0; }
   /* "N new photos" notice when the auto-refresh brings fresh captures in. */
   .new-pill {
     display: inline-flex; align-items: center; gap: 6px;
@@ -882,6 +896,43 @@
     transition: opacity 0.2s;
   }
   .toast.show { opacity: 1; }
+
+  /* ── PHONES (≤640px) ─────────────────────────────────────────────────────
+     Students open this on phones. Stack the desktop's side-by-side layouts,
+     let the nav links scroll sideways, and give the lightbox a single-column
+     flow (photo on top, details under it). */
+  @media (max-width: 640px) {
+    nav { padding: 8px 12px; height: auto; flex-wrap: wrap; }
+    .nav-brand { margin-right: 10px; }
+    .nav-right { margin-left: auto; }
+    .nav-links {
+      order: 3; flex: 0 0 100%;   /* beats the base .nav-links flex:1, forcing its own row */
+      overflow-x: auto; -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+    }
+    .nav-links::-webkit-scrollbar { display: none; }
+    .nav-link { padding: 8px 10px; font-size: 13px; white-space: nowrap; }
+
+    .library-header { flex-direction: column; align-items: flex-start; gap: 10px; padding: 20px 16px 12px; }
+    .filter-bar { padding: 0 16px 14px; }
+    .search-row { flex-wrap: wrap; gap: 8px; }
+    .search-wrap { width: 100%; }
+
+    .photo-grid { grid-template-columns: 1fr; padding: 0 16px 40px; }
+    .live-grid { grid-template-columns: 1fr; padding: 0 16px 40px; }
+    .new-pill { margin-left: 16px; }
+
+    .lightbox-inner { flex-direction: column; width: calc(100% - 20px); max-height: calc(100vh - 32px); overflow-y: auto; }
+    .lightbox-img-wrap img, .lightbox-img-wrap video { max-height: 52vh; }
+    .lightbox-meta { width: 100%; padding: 18px 16px; gap: 14px; }
+    .lb-nav { width: 38px; height: 38px; }
+
+    .activity-grid { grid-template-columns: 1fr; }
+    .act-row .act-name { width: 95px; font-size: 12px; }
+
+    .settings-page { padding: 20px 16px; }
+    .live-detail { padding: 16px; }
+  }
 </style>
 </head>
 <body>
@@ -1282,6 +1333,10 @@
         title="Turn this photo 90° — click again to keep turning. Signed-in rotations are saved for everyone; otherwise it only sticks on this device.">
         ⟳ Rotate 90°
       </button>
+      <div style="display:flex;gap:8px;">
+        <button class="btn-secondary" style="flex:1;" onclick="lbDownload()" title="Save this photo to your device">⬇ Download</button>
+        <button class="btn-secondary" style="flex:1;" onclick="lbShare()" title="Copy a link that opens straight to this photo">🔗 Share</button>
+      </div>
     </div>
   </div>
 </div>
@@ -1639,6 +1694,12 @@ async function loadCaptures() {
     // the FIRST load; afterwards loadMoreCaptures() owns the flag.
     if (wasEmpty) hasMoreHistory = cards.length >= PAGE_SIZE;
     refreshAfterPhotoChange();
+    // Arrived through a shared #photo=... link? Open it now that photos exist.
+    if (pendingDeepLink && allPhotos.length) {
+      const link = pendingDeepLink;
+      pendingDeepLink = null;
+      openPhotoById(link);
+    }
   } catch (e) {
     // A failed REFRESH shouldn't wipe a working gallery -- keep showing what we
     // have and try again next tick. Only surface the error before first data.
@@ -1836,6 +1897,56 @@ function groupOf(idx) {
   return currentGroups.find(g => idx >= g.start && idx < g.start + g.len) || null;
 }
 
+// ── BURST PLAYBACK ────────────────────────────────────────────────────────────
+// One click on a burst card's ▶ plays the event like a flip-book, right on the
+// card: the frames swap in chronological order, the badge counts "3/21", and
+// after one pass it settles back on the first frame. Clicking again stops it.
+// Only one card plays at a time; detection boxes hide during playback (they
+// belong to one specific frame).
+let burstPlayer = null;   // { timer, img, canvas, badge, btn, frames, pos, faceThumb, count }
+
+function stopBurstPlay(restore = true) {
+  if (!burstPlayer) return;
+  clearInterval(burstPlayer.timer);
+  const bp = burstPlayer;
+  burstPlayer = null;
+  if (restore && bp.img && bp.img.isConnected) {
+    bp.img.src = bp.faceThumb;
+    bp.btn.innerHTML = '&#9654;';
+    bp.btn.classList.remove('playing');
+    if (bp.badge) bp.badge.innerHTML = `&#9656; ${bp.count} shots`;
+    if (bp.canvas) bp.canvas.style.display = '';
+  }
+}
+
+function toggleBurstPlay(gi, btn, ev) {
+  if (ev) ev.stopPropagation();
+  if (burstPlayer && burstPlayer.btn === btn) { stopBurstPlay(); return; }   // pause
+  stopBurstPlay();
+  const g = currentGroups[gi];
+  if (!g || g.len < 2) return;
+  const frames = currentPhotos.slice(g.start, g.start + g.len).sort((a, b) => a.date - b.date);
+  const card = btn.closest('.photo-card');
+  const img = card.querySelector('img');
+  const canvas = card.querySelector('canvas.det-overlay');
+  const badge = card.querySelector('.burst-badge');
+  if (!img) return;
+  if (canvas) canvas.style.display = 'none';
+  btn.innerHTML = '&#10074;&#10074;';   // ⏸
+  btn.classList.add('playing');
+  burstPlayer = { timer: 0, img, canvas, badge, btn, frames, pos: 0, faceThumb: frames[0].thumb, count: g.len };
+  img.src = frames[0].thumb;
+  if (badge) badge.textContent = `1/${frames.length}`;
+  burstPlayer.timer = setInterval(() => {
+    const bp = burstPlayer;
+    if (!bp || !bp.img.isConnected) { stopBurstPlay(false); return; }   // grid re-rendered under us
+    bp.pos++;
+    if (bp.pos >= bp.frames.length) { stopBurstPlay(); return; }        // one full pass, then rest
+    bp.img.src = bp.frames[bp.pos].thumb;
+    if (bp.badge) bp.badge.textContent = `${bp.pos + 1}/${bp.frames.length}`;
+  }, 450);
+}
+
 let lastGridSig = '';   // skip identical re-renders: rebuilding 100 <img> tags
                         // aborts + restarts every in-flight photo download
 function renderGrid(photos) {
@@ -1853,8 +1964,9 @@ function renderGrid(photos) {
   if (!photos.length) { grid.innerHTML = ''; empty.classList.add('visible'); currentPhotos = photos; return; }
   empty.classList.remove('visible');
   currentPhotos = photos;
+  stopBurstPlay(false);    // the cards are about to be rebuilt — drop any playback
   const facePhotos = [];   // index-aligned with the cards, for hookDetOverlays
-  grid.innerHTML = groups.map(g => {
+  grid.innerHTML = groups.map((g, gi) => {
     const faceIdx = groupFaceIndex(photos, g);
     const p = photos[faceIdx];
     facePhotos.push(p);
@@ -1865,7 +1977,10 @@ function renderGrid(photos) {
       : `<img src="${p.thumb}" alt="${p.animal}" loading="lazy"><canvas class="det-overlay"></canvas>`;
     // Card title: camera name, plus what the AI found (e.g. "DARIUS · RED FOX").
     const tag = p.camera.replace(' Cam', '') + (p.animal !== 'Unknown' ? ' · ' + p.animal : '');
-    const burst = g.len > 1 ? `<div class="burst-badge">&#9656; ${g.len} shots</div>` : '';
+    const burst = g.len > 1
+      ? `<div class="burst-badge">&#9656; ${g.len} shots</div>
+         <button class="burst-play" title="Play this burst like a mini movie" onclick="toggleBurstPlay(${gi}, this, event)">&#9654;</button>`
+      : '';
     return `
     <div class="photo-card" onclick="openLightbox(${faceIdx})">
       ${media}
@@ -1981,12 +2096,69 @@ function openLightbox(idx) {
   updateLightbox();
   document.getElementById('lightbox').classList.add('open');
   document.body.style.overflow = 'hidden';
+  // Give this photo a shareable address (#photo=...) without polluting history.
+  const p = currentPhotos[idx];
+  if (p) history.replaceState(null, '', '#photo=' + encodeURIComponent(p.id));
 }
 function closeLightbox() {
   const vid = document.getElementById('lbVideo');
   if (vid) vid.pause();
   document.getElementById('lightbox').classList.remove('open');
   document.body.style.overflow = '';
+  history.replaceState(null, '', location.pathname + location.search);   // drop #photo=
+}
+
+// ── DOWNLOAD / SHARE / DEEP LINK ──────────────────────────────────────────────
+async function lbDownload() {
+  const p = currentPhotos[lbIndex];
+  if (!p || !p.src) return;
+  const name = `${p.camera.replace(/\s+/g, '_')}_${p.date.toISOString().slice(0, 19).replace(/[:T]/g, '-')}.jpg`;
+  try {
+    // Same-fetch download gives a proper filename. If the storage host says no
+    // (cross-origin), fall back to opening the full-size image to save by hand.
+    const res = await fetch(p.src);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    showToast('Photo downloaded');
+  } catch {
+    window.open(p.src, '_blank');
+    showToast('Opened full size — right-click / long-press to save');
+  }
+}
+
+function lbShare() {
+  const p = currentPhotos[lbIndex];
+  if (!p) return;
+  const url = location.origin + location.pathname + '#photo=' + encodeURIComponent(p.id);
+  const done = () => showToast('Link copied — send it to someone!');
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(done, () => prompt('Copy this link:', url));
+  } else {
+    prompt('Copy this link:', url);
+  }
+}
+
+// Arriving via a shared link: open that photo once the first page has loaded.
+// Checked in loadCaptures (the photo list must exist before we can find it).
+let pendingDeepLink = (location.hash.match(/^#photo=(.+)$/) || [])[1] || null;
+
+function openPhotoById(rawId) {
+  const id = decodeURIComponent(rawId);
+  let idx = currentPhotos.findIndex(p => String(p.id) === id);
+  if (idx < 0 && libraryMode !== 'all') {
+    // Not among the detections — look in the full Library.
+    showLibrary(document.querySelectorAll('.nav-link')[1]);
+    idx = currentPhotos.findIndex(p => String(p.id) === id);
+  }
+  if (idx >= 0) openLightbox(idx);
+  else showToast("That photo isn't in the gallery (it may be private or older than what's loaded)");
 }
 function closeLightboxOnBg(e) { if (e.target === document.getElementById('lightbox')) closeLightbox(); }
 function lbNav(dir) { lbIndex = (lbIndex + dir + currentPhotos.length) % currentPhotos.length; updateLightbox(); }
