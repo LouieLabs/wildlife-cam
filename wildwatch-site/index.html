@@ -303,6 +303,48 @@
     font-size: 10px; font-weight: 500; color: rgba(255,255,255,0.9);
     letter-spacing: 0.04em; text-transform: uppercase;
   }
+  /* Burst (motion event) count on a collapsed card — mirrors .photo-tag. */
+  .burst-badge {
+    position: absolute; top: 10px; right: 10px;
+    background: rgba(20,30,22,0.65);
+    backdrop-filter: blur(4px);
+    padding: 3px 8px; border-radius: 4px;
+    font-size: 10px; font-weight: 600; color: rgba(255,255,255,0.92);
+    letter-spacing: 0.04em; text-transform: uppercase;
+  }
+  /* "N new photos" notice when the auto-refresh brings fresh captures in. */
+  .new-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    margin: 0 0 14px; padding: 6px 14px;
+    background: var(--green); color: #fff;
+    border-radius: 20px; font-size: 12.5px; font-weight: 600;
+    cursor: pointer; box-shadow: var(--shadow);
+  }
+  .new-pill:hover { background: var(--green-light); }
+
+  /* ── ACTIVITY PAGE ── */
+  .activity-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: 16px;
+  }
+  .act-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 18px 20px; box-shadow: var(--shadow);
+  }
+  .act-card h4 {
+    margin: 0 0 14px; font-size: 12px; font-weight: 600;
+    color: var(--text-2); text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .act-bars { display: flex; align-items: flex-end; gap: 4px; height: 120px; }
+  .act-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; height: 100%; justify-content: flex-end; }
+  .act-bar { width: 100%; background: var(--green); border-radius: 3px 3px 0 0; min-height: 2px; }
+  .act-bars.hours .act-bar { background: var(--amber); }
+  .act-col span { font-size: 9px; color: var(--text-2); white-space: nowrap; overflow: hidden; }
+  .act-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; font-size: 13px; }
+  .act-row .act-name { width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .act-row .act-track { flex: 1; background: var(--green-faint); border-radius: 4px; height: 14px; overflow: hidden; }
+  .act-row .act-fill { height: 100%; background: var(--green); border-radius: 4px; }
+  .act-row .act-num { width: 40px; text-align: right; color: var(--text-2); font-size: 12px; }
 
   /* Empty state */
   .empty-state {
@@ -858,6 +900,7 @@
     <button class="nav-link active" onclick="showHome(this)">Home</button>
     <button class="nav-link" onclick="showLibrary(this)">Library</button>
     <button class="nav-link" onclick="showPage('live', this)">Live</button>
+    <button class="nav-link" onclick="showPage('activity', this)">Activity</button>
     <button class="nav-link" onclick="showPage('settings', this)">Settings</button>
   </div>
   <div class="nav-right">
@@ -941,6 +984,7 @@
     <div class="filter-chips-row" id="activeFiltersRow" style="display:none;"></div>
   </div>
 
+  <div class="new-pill" id="newPhotosPill" style="display:none;" onclick="dismissNewPill()">↑ new photos</div>
   <div class="photo-grid" id="photoGrid"></div>
   <div style="text-align:center;margin:20px 0 4px;">
     <button class="btn-secondary" id="loadMoreBtn" style="display:none;" onclick="loadMoreCaptures()">Load older photos</button>
@@ -1138,6 +1182,34 @@
 <!-- ══════════════ MAP PAGE ══════════════ -->
 <!-- (Property Map page removed for now — camera admin lives under Settings.) -->
 
+<!-- ══════════════ ACTIVITY PAGE ══════════════ -->
+<div id="page-activity" class="page">
+  <div class="library-header">
+    <div>
+      <div class="library-title">Activity</div>
+      <div class="photo-count" id="activityCount">—</div>
+    </div>
+  </div>
+  <div class="activity-grid">
+    <div class="act-card">
+      <h4>Photos per day · last 14 days</h4>
+      <div class="act-bars" id="actDaily"></div>
+    </div>
+    <div class="act-card">
+      <h4>Busiest hours of the day</h4>
+      <div class="act-bars hours" id="actHours"></div>
+    </div>
+    <div class="act-card">
+      <h4>Animals seen</h4>
+      <div id="actAnimals"></div>
+    </div>
+    <div class="act-card">
+      <h4>Photos per camera</h4>
+      <div id="actCameras"></div>
+    </div>
+  </div>
+</div>
+
 <!-- ══════════════ SETTINGS PAGE ══════════════ -->
 <div id="page-settings" class="page">
   <div class="settings-page">
@@ -1200,6 +1272,7 @@
       </div>
       <hr class="lb-divider">
       <div class="lb-field"><label>Date & Time</label><span id="lbDate"></span></div>
+      <div class="lb-field" id="lbBurstRow" style="display:none;"><label>Burst</label><span id="lbBurst"></span></div>
       <div class="lb-field"><label>Camera</label><span id="lbCamera"></span></div>
       <div class="lb-field"><label>Location</label><span id="lbLocation"></span></div>
       <div class="lb-field"><label>Time of Day</label><span id="lbTime"></span></div>
@@ -1541,6 +1614,9 @@ function refreshAfterPhotoChange() {
   updateLoadMoreBtn();
   // If the Live grid is on screen, refresh its tiles with the new frames.
   if (document.getElementById('page-live').classList.contains('active')) renderLiveGrid();
+  // Same for the Activity charts.
+  const act = document.getElementById('page-activity');
+  if (act && act.classList.contains('active')) renderActivity();
 }
 
 async function loadCaptures() {
@@ -1551,6 +1627,13 @@ async function loadCaptures() {
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const cards = await res.json();
     const wasEmpty = allPhotos.length === 0;
+    // Count genuinely-new arrivals BEFORE merging, so the refresh can announce
+    // them ("↑ 3 new photos") instead of slipping them in silently.
+    if (!wasEmpty) {
+      const known = new Set(allPhotos.map(p => p.id));
+      const fresh = cards.filter(c => c.id && !known.has(c.id)).length;
+      if (fresh > 0) announceNewPhotos(fresh);
+    }
     mergePhotos(cards);
     // A full first page suggests there's history beyond it. Only decide this on
     // the FIRST load; afterwards loadMoreCaptures() owns the flag.
@@ -1596,6 +1679,24 @@ function updateLoadMoreBtn() {
   btn.style.display = hasMoreHistory && allPhotos.length ? 'inline-block' : 'none';
   btn.disabled = loadingMore;
   btn.textContent = loadingMore ? 'Loading…' : 'Load older photos';
+}
+
+// ── "NEW PHOTOS" NOTICE ───────────────────────────────────────────────────────
+// The 60 s auto-refresh merges new captures into the grid quietly; this pill
+// makes the arrival visible. The count accumulates until the pill is clicked.
+let newPhotoCount = 0;
+function announceNewPhotos(n) {
+  newPhotoCount += n;
+  const pill = document.getElementById('newPhotosPill');
+  if (!pill) return;
+  pill.textContent = `↑ ${newPhotoCount} new photo${newPhotoCount !== 1 ? 's' : ''} — tap to see`;
+  pill.style.display = 'inline-flex';
+}
+function dismissNewPill() {
+  newPhotoCount = 0;
+  const pill = document.getElementById('newPhotosPill');
+  if (pill) pill.style.display = 'none';
+  window.scrollTo({ top: 0, behavior: 'smooth' });   // newest photos live at the top
 }
 
 // The Animal/Camera filter chips are hardcoded for the demo; rebuild them from
@@ -1695,18 +1796,68 @@ function hookDetOverlays(grid, photos) {
 }
 
 // ── RENDER GRID ───────────────────────────────────────────────────────────────
+// ── BURST GROUPING ────────────────────────────────────────────────────────────
+// A motion burst shoots every ~2 s, so one animal visit would flood the grid
+// with near-identical cards. Photos from the SAME camera within BURST_GAP_MS of
+// their neighbor collapse into one "event" card (the burst's first frame + a
+// shot count). The photo list itself stays flat — a burst is just a contiguous
+// run of the sorted list — so the lightbox arrows flip through the burst frame
+// by frame with no extra machinery.
+const BURST_GAP_MS = 3 * 60 * 1000;   // 60-shot bursts pause ~30-60 s between
+                                      // chunks (the runaway cap); 3 min bridges
+                                      // the chunks of one visit without merging
+                                      // separate visits.
+let currentGroups = [];   // [{start, len}] runs over currentPhotos
+
+function computeGroups(photos) {
+  const groups = [];
+  for (let i = 0; i < photos.length; i++) {
+    const prev = i > 0 ? photos[i - 1] : null;
+    const g = groups[groups.length - 1];
+    if (g && prev && photos[i].cameraId === prev.cameraId &&
+        Math.abs(prev.date - photos[i].date) <= BURST_GAP_MS) {
+      g.len++;
+    } else {
+      groups.push({ start: i, len: 1 });
+    }
+  }
+  return groups;
+}
+
+// The card face of a group: the burst's chronologically FIRST frame. In the
+// usual newest-first sort that's the run's LAST element; in oldest-first it's
+// the first. Compare dates so both sorts work.
+function groupFaceIndex(photos, g) {
+  const a = g.start, b = g.start + g.len - 1;
+  return photos[a].date <= photos[b].date ? a : b;
+}
+
+function groupOf(idx) {
+  return currentGroups.find(g => idx >= g.start && idx < g.start + g.len) || null;
+}
+
 let lastGridSig = '';   // skip identical re-renders: rebuilding 100 <img> tags
                         // aborts + restarts every in-flight photo download
 function renderGrid(photos) {
   const grid = document.getElementById('photoGrid');
   const empty = document.getElementById('emptyState');
-  document.getElementById('photoCount').textContent = `${photos.length} photo${photos.length !== 1 ? 's' : ''}`;
+  const groups = computeGroups(photos);
+  currentGroups = groups;
+  document.getElementById('photoCount').textContent =
+    groups.length === photos.length
+      ? `${photos.length} photo${photos.length !== 1 ? 's' : ''}`
+      : `${groups.length} event${groups.length !== 1 ? 's' : ''} · ${photos.length} photos`;
   const sig = photos.map(p => p.id).join(',');
   if (sig === lastGridSig && photos.length) { currentPhotos = photos; return; }
   lastGridSig = sig;
   if (!photos.length) { grid.innerHTML = ''; empty.classList.add('visible'); currentPhotos = photos; return; }
   empty.classList.remove('visible');
-  grid.innerHTML = photos.map((p, i) => {
+  currentPhotos = photos;
+  const facePhotos = [];   // index-aligned with the cards, for hookDetOverlays
+  grid.innerHTML = groups.map(g => {
+    const faceIdx = groupFaceIndex(photos, g);
+    const p = photos[faceIdx];
+    facePhotos.push(p);
     const media = p.type === 'video'
       ? (p.thumb
           ? `<img src="${p.thumb}" alt="${p.animal}" loading="lazy"><span class="video-badge">&#9654;</span>`
@@ -1714,9 +1865,11 @@ function renderGrid(photos) {
       : `<img src="${p.thumb}" alt="${p.animal}" loading="lazy"><canvas class="det-overlay"></canvas>`;
     // Card title: camera name, plus what the AI found (e.g. "DARIUS · RED FOX").
     const tag = p.camera.replace(' Cam', '') + (p.animal !== 'Unknown' ? ' · ' + p.animal : '');
+    const burst = g.len > 1 ? `<div class="burst-badge">&#9656; ${g.len} shots</div>` : '';
     return `
-    <div class="photo-card" onclick="openLightbox(${i})">
+    <div class="photo-card" onclick="openLightbox(${faceIdx})">
       ${media}
+      ${burst}
       <div class="photo-tag">${tag}</div>
       <div class="photo-label">
         <div class="label-animal">
@@ -1728,8 +1881,7 @@ function renderGrid(photos) {
     </div>
   `;
   }).join('');
-  currentPhotos = photos;
-  hookDetOverlays(grid, photos);
+  hookDetOverlays(grid, facePhotos);
 }
 
 // ── FILTERING ─────────────────────────────────────────────────────────────────
@@ -1869,9 +2021,14 @@ async function lbRotate() {
   }
 
   updateLightbox();   // re-draw the big image + boxes at the new angle
-  // Nudge the matching grid card too (same index — the grid renders currentPhotos).
-  const card = document.getElementById('photoGrid').children[lbIndex];
-  if (card) applyRotation(card.querySelector('img'), card.querySelector('canvas.det-overlay'), next);
+  // Nudge the matching grid card too. Cards are one-per-GROUP now, so find the
+  // group this frame belongs to — and only touch the card if this frame is the
+  // one on its face (rotating frame 7 of a burst shouldn't turn the cover).
+  const gi = currentGroups.findIndex(g => lbIndex >= g.start && lbIndex < g.start + g.len);
+  if (gi >= 0 && groupFaceIndex(currentPhotos, currentGroups[gi]) === lbIndex) {
+    const card = document.getElementById('photoGrid').children[gi];
+    if (card) applyRotation(card.querySelector('img'), card.querySelector('canvas.det-overlay'), next);
+  }
 }
 function updateLightbox() {
   const p = currentPhotos[lbIndex];
@@ -1910,6 +2067,22 @@ function updateLightbox() {
   document.getElementById('lbAnimal').textContent = p.animal;
   document.getElementById('lbDot').style.background = p.color;
   document.getElementById('lbDate').textContent = p.dateStr;
+  // Inside a burst, say where this frame sits (chronological order), so the
+  // side arrows read as "flipping through the event".
+  const g = groupOf(lbIndex);
+  const burstRow = document.getElementById('lbBurstRow');
+  if (burstRow) {
+    if (g && g.len > 1) {
+      let pos = 0;
+      for (let i = g.start; i < g.start + g.len; i++) {
+        if (currentPhotos[i].date <= p.date) pos++;
+      }
+      document.getElementById('lbBurst').textContent = `frame ${pos} of ${g.len} — use the arrows to flip through`;
+      burstRow.style.display = '';
+    } else {
+      burstRow.style.display = 'none';
+    }
+  }
   document.getElementById('lbCamera').textContent = p.camera;
   document.getElementById('lbLocation').textContent = p.location || '—';
   document.getElementById('lbTime').textContent = p.timeOfDay;
@@ -2119,11 +2292,77 @@ function renderSightingFeed() {
 }
 
 // ── NAV ───────────────────────────────────────────────────────────────────────
+// ── ACTIVITY PAGE ─────────────────────────────────────────────────────────────
+// All charts are computed from the photos already loaded in the browser (the
+// newest pages + whatever history was paged in) — no extra backend calls.
+function renderActivity() {
+  const photos = allPhotos;
+  const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+
+  // Photos per day, last 14 days (today on the right).
+  const days = [];
+  const now = new Date();
+  for (let i = 13; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+    days.push({ key: d.toDateString(), label: `${d.getMonth() + 1}/${d.getDate()}`, n: 0 });
+  }
+  const byDay = Object.fromEntries(days.map(d => [d.key, d]));
+  let last14 = 0;
+  for (const p of photos) {
+    const rec = byDay[p.date.toDateString()];
+    if (rec) { rec.n++; last14++; }
+  }
+  const dMax = Math.max(1, ...days.map(d => d.n));
+  const daily = document.getElementById('actDaily');
+  if (daily) daily.innerHTML = days.map(d => `
+    <div class="act-col" title="${d.label}: ${d.n} photo${d.n !== 1 ? 's' : ''}">
+      <div class="act-bar" style="height:${Math.round((d.n / dMax) * 100)}%"></div>
+      <span>${d.label}</span>
+    </div>`).join('');
+
+  // Busiest hours of the day (all loaded photos).
+  const hours = Array.from({ length: 24 }, () => 0);
+  for (const p of photos) hours[p.date.getHours()]++;
+  const hMax = Math.max(1, ...hours);
+  const hourLabel = h => h === 0 ? '12a' : h < 12 ? h + 'a' : h === 12 ? '12p' : (h - 12) + 'p';
+  const actHours = document.getElementById('actHours');
+  if (actHours) actHours.innerHTML = hours.map((n, h) => `
+    <div class="act-col" title="${hourLabel(h)}: ${n} photo${n !== 1 ? 's' : ''}">
+      <div class="act-bar" style="height:${Math.round((n / hMax) * 100)}%"></div>
+      <span>${h % 6 === 0 ? hourLabel(h) : ''}</span>
+    </div>`).join('');
+
+  // Ranked lists: animals seen (skip Unknown) and photos per camera.
+  const rows = (counts, empty) => {
+    const entries = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
+    if (!entries.length) return `<p style="font-size:13px;color:var(--text-2);margin:0;">${empty}</p>`;
+    const max = entries[0][1];
+    return entries.map(([name, n]) => `
+      <div class="act-row" title="${esc(name)}: ${n}">
+        <span class="act-name">${esc(name)}</span>
+        <div class="act-track"><div class="act-fill" style="width:${Math.round((n / max) * 100)}%"></div></div>
+        <span class="act-num">${n}</span>
+      </div>`).join('');
+  };
+  const animalCounts = new Map();
+  for (const p of photos) if (p.animal !== 'Unknown') animalCounts.set(p.animal, (animalCounts.get(p.animal) || 0) + 1);
+  const camCounts = new Map();
+  for (const p of photos) camCounts.set(p.camera, (camCounts.get(p.camera) || 0) + 1);
+  const aEl = document.getElementById('actAnimals');
+  if (aEl) aEl.innerHTML = rows(animalCounts, 'No animals identified yet — they show up here as the AI names them.');
+  const cEl = document.getElementById('actCameras');
+  if (cEl) cEl.innerHTML = rows(camCounts, 'No photos yet.');
+
+  const count = document.getElementById('activityCount');
+  if (count) count.textContent = `${photos.length} photo${photos.length !== 1 ? 's' : ''} loaded · ${last14} in the last 14 days`;
+}
+
 function showPage(name, btn) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
   document.getElementById('page-' + name).classList.add('active');
   if (btn) btn.classList.add('active');
+  if (name === 'activity') renderActivity();
   if (name === 'live') {
     stopLiveRefresh();
     document.getElementById('liveDetailView').style.display = 'none';
