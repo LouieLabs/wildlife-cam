@@ -1274,6 +1274,12 @@
         Only these animals — leave them all unselected to be notified about <em>every</em> detection:
       </p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;" id="notifAnimalChips"></div>
+      <div style="margin-top:12px;">
+        <input type="text" id="notifSearch" placeholder="Search any species to add (e.g. bobcat, opossum)…" autocomplete="off"
+          style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:7px;font-size:13px;font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);outline:none;"
+          oninput="notifSearchInput(this.value)">
+        <div id="notifSearchResults" style="display:flex;flex-direction:column;gap:4px;margin-top:6px;"></div>
+      </div>
       <div class="storage-label" id="notifStatus" style="margin-top:12px;"></div>
     </div>
 
@@ -1814,10 +1820,25 @@ function toggleNotifs() {
   });
 }
 
+// The always-offered starter list (project pick), in this order. Anything the
+// AI has actually seen here, plus species the user adds via search, appears too.
+const NOTIF_DEFAULT_ANIMALS = ['Squirrel', 'Rat', 'Mouse', 'Dog', 'Domestic Dog', 'Coyote', 'Deer', 'Raccoon', 'Person'];
+const NOTIF_CUSTOM_KEY = 'wildwatch.notif.customAnimals';
+const notifCustomAnimals = () => { try { return JSON.parse(localStorage.getItem(NOTIF_CUSTOM_KEY) || '[]'); } catch { return []; } };
+
 function toggleNotifAnimal(name) {
   const list = notifAnimals();
   const i = list.findIndex((a) => a.toLowerCase() === name.toLowerCase());
   if (i >= 0) list.splice(i, 1); else list.push(name);
+  localStorage.setItem(NOTIF_ANIMALS_KEY, JSON.stringify(list));
+  renderNotifSettings();
+}
+
+function removeCustomNotifAnimal(name, ev) {
+  if (ev) ev.stopPropagation();   // don't also toggle the chip underneath
+  localStorage.setItem(NOTIF_CUSTOM_KEY,
+    JSON.stringify(notifCustomAnimals().filter((a) => a.toLowerCase() !== name.toLowerCase())));
+  const list = notifAnimals().filter((a) => a.toLowerCase() !== name.toLowerCase());
   localStorage.setItem(NOTIF_ANIMALS_KEY, JSON.stringify(list));
   renderNotifSettings();
 }
@@ -1827,17 +1848,28 @@ function renderNotifSettings() {
   if (!sw) return;
   const on = localStorage.getItem(NOTIF_ENABLED_KEY) === 'true';
   sw.classList.toggle('on', on);
-  // Chips: every animal the AI has actually seen here, plus Person (privacy-
-  // relevant and always worth an option). More appear as the AI finds them.
-  const seen = [...new Set(allPhotos.map((p) => p.animal).filter((a) => a !== 'Unknown'))];
-  if (!seen.some((a) => /person/i.test(a))) seen.push('Person');
-  seen.sort();
+  // Chip list = starter list (fixed order) + animals the AI has seen here +
+  // user-added species from search. Dedup case-insensitively, starters first.
+  const custom = notifCustomAnimals();
+  const seen = [...new Set(allPhotos.map((p) => p.animal).filter((a) => a !== 'Unknown'))].sort();
+  const all = [];
+  const have = new Set();
+  for (const a of [...NOTIF_DEFAULT_ANIMALS, ...seen, ...custom]) {
+    if (have.has(a.toLowerCase())) continue;
+    have.add(a.toLowerCase());
+    all.push(a);
+  }
+  const customSet = new Set(custom.map((a) => a.toLowerCase()));
   const wanted = notifAnimals().map((a) => a.toLowerCase());
   const chips = document.getElementById('notifAnimalChips');
   if (chips) {
-    chips.innerHTML = seen.map((a) => {
+    chips.innerHTML = all.map((a) => {
       const act = wanted.includes(a.toLowerCase()) ? ' active' : '';
-      return `<span class="filter-chip${act}" onclick="toggleNotifAnimal('${a.replace(/'/g, "\\'")}')">${a}</span>`;
+      const esc = a.replace(/'/g, "\\'");
+      // User-added species get a little × so they can be removed again.
+      const x = customSet.has(a.toLowerCase())
+        ? ` <span class="chip-x" onclick="removeCustomNotifAnimal('${esc}', event)">×</span>` : '';
+      return `<span class="filter-chip${act}" style="cursor:pointer;" onclick="toggleNotifAnimal('${esc}')">${a}${x}</span>`;
     }).join('');
   }
   const status = document.getElementById('notifStatus');
@@ -1851,12 +1883,21 @@ function renderNotifSettings() {
   }
 }
 
+// Does a chosen chip cover this detection? Whole-word match in either
+// direction: "Deer" covers "Mule Deer", "Dog" covers "Domestic Dog" — but
+// "Rat" does NOT match "Muskrat" (word boundary, not substring).
+function animalMatches(chip, animal) {
+  const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`\\b${escape(chip)}\\b`, 'i').test(animal)
+      || new RegExp(`\\b${escape(animal)}\\b`, 'i').test(chip);
+}
+
 function notifyDetections(freshPhotos) {
   if (!notifEnabled()) return;
-  const wanted = notifAnimals().map((a) => a.toLowerCase());
+  const wanted = notifAnimals();
   for (const p of freshPhotos) {
     if (!isDetection(p)) continue;
-    if (wanted.length && !wanted.includes(p.animal.toLowerCase())) continue;
+    if (wanted.length && !wanted.some((w) => animalMatches(w, p.animal))) continue;
     try {
       const title = p.animal !== 'Unknown'
         ? `${p.animal} spotted at ${p.camera}!`
@@ -1869,6 +1910,69 @@ function notifyDetections(freshPhotos) {
       n.onclick = () => { window.focus(); openPhotoById(String(p.id)); n.close(); };
     } catch { /* some mobile browsers need a service worker — fail quietly */ }
   }
+}
+
+// ── SPECIES SEARCH (add any animal on Earth as a notification chip) ──────────
+// Autocomplete against iNaturalist's public species database (free, no key,
+// ~500k animal species with common names). Picking a result saves it as a
+// custom chip and selects it. If the lookup fails (offline etc.) you can still
+// add whatever you typed.
+let notifSearchTimer = null;
+
+function notifSearchInput(q) {
+  clearTimeout(notifSearchTimer);
+  const box = document.getElementById('notifSearchResults');
+  q = q.trim();
+  if (!box) return;
+  if (q.length < 2) { box.innerHTML = ''; return; }
+  notifSearchTimer = setTimeout(async () => {
+    const titleCase = (s) => s.replace(/\w\S*/g, (w) => w[0].toUpperCase() + w.slice(1));
+    let rows = [];
+    try {
+      const res = await fetch(
+        `https://api.inaturalist.org/v1/taxa/autocomplete?q=${encodeURIComponent(q)}&per_page=8&is_active=true`);
+      const data = await res.json();
+      rows = (data.results || [])
+        // Animals only — this is a wildlife camera, not a garden survey.
+        .filter((t) => !['Plantae', 'Fungi', 'Chromista', 'Protozoa'].includes(t.iconic_taxon_name))
+        .filter((t) => t.preferred_common_name || t.name)
+        .slice(0, 6)
+        .map((t) => ({
+          label: titleCase(t.preferred_common_name || t.name),
+          sci: t.name && t.preferred_common_name ? t.name : '',
+        }));
+    } catch { /* fall through to add-as-typed */ }
+    const esc = (s) => s.replace(/'/g, "\\'").replace(/</g, '&lt;');
+    const items = rows.map((r) => `
+      <span class="filter-chip" style="cursor:pointer;justify-content:flex-start;"
+        onclick="addCustomNotifAnimal('${esc(r.label)}')">＋ ${esc(r.label)}${r.sci ? ` <em style="opacity:.6;font-style:italic;">&nbsp;${esc(r.sci)}</em>` : ''}</span>`);
+    // Always offer the typed text too, so an odd spelling or nickname still works.
+    if (!rows.some((r) => r.label.toLowerCase() === q.toLowerCase())) {
+      items.push(`<span class="filter-chip" style="cursor:pointer;" onclick="addCustomNotifAnimal('${esc(titleCase(q))}')">＋ Add “${esc(titleCase(q))}” as typed</span>`);
+    }
+    box.innerHTML = items.join('');
+  }, 350);
+}
+
+function addCustomNotifAnimal(name) {
+  const custom = notifCustomAnimals();
+  if (!custom.some((a) => a.toLowerCase() === name.toLowerCase())
+      && !NOTIF_DEFAULT_ANIMALS.some((a) => a.toLowerCase() === name.toLowerCase())) {
+    custom.push(name);
+    localStorage.setItem(NOTIF_CUSTOM_KEY, JSON.stringify(custom));
+  }
+  // Adding a species means "I want to hear about it" — select it right away.
+  const list = notifAnimals();
+  if (!list.some((a) => a.toLowerCase() === name.toLowerCase())) {
+    list.push(name);
+    localStorage.setItem(NOTIF_ANIMALS_KEY, JSON.stringify(list));
+  }
+  const input = document.getElementById('notifSearch');
+  const box = document.getElementById('notifSearchResults');
+  if (input) input.value = '';
+  if (box) box.innerHTML = '';
+  renderNotifSettings();
+  showToast(`Added ${name} to your notification list`);
 }
 
 // The Animal/Camera filter chips are hardcoded for the demo; rebuild them from
