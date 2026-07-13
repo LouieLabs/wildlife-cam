@@ -942,6 +942,9 @@
   </div>
 
   <div class="photo-grid" id="photoGrid"></div>
+  <div style="text-align:center;margin:20px 0 4px;">
+    <button class="btn-secondary" id="loadMoreBtn" style="display:none;" onclick="loadMoreCaptures()">Load older photos</button>
+  </div>
   <div class="empty-state" id="emptyState">
     <div class="empty-icon">🌿</div>
     <h3>No photos found</h3>
@@ -1201,6 +1204,11 @@
       <div class="lb-field"><label>Location</label><span id="lbLocation"></span></div>
       <div class="lb-field"><label>Time of Day</label><span id="lbTime"></span></div>
       <div class="lb-field"><label>Notes</label><span id="lbNotes"></span></div>
+      <hr class="lb-divider">
+      <button class="btn-secondary" id="lbRotateBtn" onclick="lbRotate()" style="width:100%;"
+        title="Turn this photo 90° — click again to keep turning. Signed-in rotations are saved for everyone; otherwise it only sticks on this device.">
+        ⟳ Rotate 90°
+      </button>
     </div>
   </div>
 </div>
@@ -1470,28 +1478,84 @@ function mapCaptureToPhoto(card, i) {
     timeOfDay: timeOfDay(dt),
     notes: typeof card.confidence === 'number' && card.confidence > 0
       ? `AI confidence ${Math.round(card.confidence * 100)}%` : '',
+    // Display rotation saved on the server (0/90/180/270) -- applies for every
+    // viewer. A local (this-browser-only) override may sit on top; see effRot().
+    rotation: [90, 180, 270].includes(card.rotation) ? card.rotation : 0,
   };
 }
 
+// ── PHOTO ROTATION ────────────────────────────────────────────────────────────
+// The rotation every viewer sees comes from the server (p.rotation, saved via
+// the lightbox button by a signed-in user). Anonymous viewers can still rotate
+// for themselves; that override lives in localStorage and wins on this device.
+function effRot(p) {
+  const local = localStorage.getItem('wildwatch.rot.' + p.id);
+  return local !== null ? (Number(local) % 360 + 360) % 360 : (p.rotation || 0);
+}
+
+// Rotate an <img> and its detection-overlay canvas together (same transform =
+// boxes stay glued to the photo). Quarter turns get scaled down so the turned
+// photo still fits the same box instead of spilling out of the card.
+function applyRotation(img, canvas, deg) {
+  let t = '';
+  if (deg) {
+    const cw = img.clientWidth, ch = img.clientHeight;
+    const fit = (deg % 180 !== 0) && cw && ch ? Math.min(cw, ch) / Math.max(cw, ch) : 1;
+    t = `rotate(${deg}deg)` + (fit !== 1 ? ` scale(${fit})` : '');
+  }
+  img.style.transform = t;
+  if (canvas) canvas.style.transform = t;
+}
+
 let allPhotos = [];   // filled from the live API on boot -- see loadCaptures()
+
+// "Load older photos" paging state. PAGE_SIZE mirrors the server default cap
+// we request; a fetch that comes back shorter means we've reached the oldest.
+const PAGE_SIZE = 100;
+let hasMoreHistory = false;
+let loadingMore = false;
+
+function captureUrl(extra = '') {
+  const base = currentUser
+    ? `${API_BASE}/api/captures?limit=${PAGE_SIZE}`
+    : `${API_BASE}/api/captures?publicOnly=true&limit=${PAGE_SIZE}`;
+  return base + extra;
+}
+
+// Merge freshly-fetched cards into allPhotos by id. Fetched entries win (their
+// signed image URLs are newer); loaded-older pages survive a refresh because a
+// refresh only re-fetches the NEWEST page and must not drop the history the
+// user already paged in.
+function mergePhotos(cards) {
+  const fresh = cards.map(mapCaptureToPhoto).filter(p => p.src);
+  const byId = new Map(fresh.map(p => [p.id, p]));
+  for (const p of allPhotos) if (!byId.has(p.id)) byId.set(p.id, p);
+  allPhotos = [...byId.values()].sort((a, b) => b.date - a.date);
+  return fresh.length;
+}
+
+function refreshAfterPhotoChange() {
+  rebuildFilterOptions();       // make the Animal/Camera filters match the real data
+  applyFiltersAndSearch();      // render the grid with the real photos
+  buildCameras();               // keep the Live tiles in sync with the newest photos
+  updateLoadMoreBtn();
+  // If the Live grid is on screen, refresh its tiles with the new frames.
+  if (document.getElementById('page-live').classList.contains('active')) renderLiveGrid();
+}
 
 async function loadCaptures() {
   try {
     // Anonymous visitors get only the AI-cleared public photos; a signed-in
     // Louie Labs account sees everything (the server decides from the token).
-    const url = currentUser
-      ? `${API_BASE}/api/captures?limit=100`
-      : `${API_BASE}/api/captures?publicOnly=true&limit=100`;
-    const res = await authedFetch(url);
+    const res = await authedFetch(captureUrl());
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const cards = await res.json();
-    allPhotos = cards.map(mapCaptureToPhoto).filter(p => p.src);
-    allPhotos.sort((a, b) => b.date - a.date);
-    rebuildFilterOptions();       // make the Animal/Camera filters match the real data
-    applyFiltersAndSearch();      // render the grid with the real photos
-    buildCameras();               // keep the Live tiles in sync with the newest photos
-    // If the Live grid is on screen, refresh its tiles with the new frames.
-    if (document.getElementById('page-live').classList.contains('active')) renderLiveGrid();
+    const wasEmpty = allPhotos.length === 0;
+    mergePhotos(cards);
+    // A full first page suggests there's history beyond it. Only decide this on
+    // the FIRST load; afterwards loadMoreCaptures() owns the flag.
+    if (wasEmpty) hasMoreHistory = cards.length >= PAGE_SIZE;
+    refreshAfterPhotoChange();
   } catch (e) {
     // A failed REFRESH shouldn't wipe a working gallery -- keep showing what we
     // have and try again next tick. Only surface the error before first data.
@@ -1501,6 +1565,37 @@ async function loadCaptures() {
       if (pc) pc.textContent = 'could not load photos — retrying…';
     }
   }
+}
+
+// Fetch the page BEFORE the oldest photo we have and append it. The cursor is
+// the oldest loaded timestamp (epoch ms); the server treats it as exclusive.
+async function loadMoreCaptures() {
+  if (loadingMore || !allPhotos.length) return;
+  loadingMore = true;
+  updateLoadMoreBtn();
+  try {
+    const oldestMs = allPhotos[allPhotos.length - 1].date.getTime();
+    const res = await authedFetch(captureUrl(`&before=${oldestMs}`));
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const cards = await res.json();
+    hasMoreHistory = cards.length >= PAGE_SIZE;
+    mergePhotos(cards);
+    refreshAfterPhotoChange();
+  } catch (e) {
+    console.error('[wildwatch] failed to load older photos:', e);
+    showToast('Could not load older photos — try again');
+  } finally {
+    loadingMore = false;
+    updateLoadMoreBtn();
+  }
+}
+
+function updateLoadMoreBtn() {
+  const btn = document.getElementById('loadMoreBtn');
+  if (!btn) return;
+  btn.style.display = hasMoreHistory && allPhotos.length ? 'inline-block' : 'none';
+  btn.disabled = loadingMore;
+  btn.textContent = loadingMore ? 'Loading…' : 'Load older photos';
 }
 
 // The Animal/Camera filter chips are hardcoded for the demo; rebuild them from
@@ -1586,13 +1681,14 @@ function drawDetBoxes(img, canvas, dets) {
   }
 }
 // Hook the overlay canvases up once the grid's images have sizes to measure.
+// Also applies each photo's saved/local rotation to the img + canvas pair.
 function hookDetOverlays(grid, photos) {
   grid.querySelectorAll('.photo-card').forEach((card, i) => {
     const img = card.querySelector('img');
     const cv = card.querySelector('canvas.det-overlay');
     const p = photos[i];
     if (!img || !cv || !p) return;
-    const go = () => drawDetBoxes(img, cv, p.detections);
+    const go = () => { drawDetBoxes(img, cv, p.detections); applyRotation(img, cv, effRot(p)); };
     if (img.complete && img.naturalWidth) go();
     else img.addEventListener('load', go, { once: true });
   });
@@ -1742,6 +1838,41 @@ function closeLightbox() {
 }
 function closeLightboxOnBg(e) { if (e.target === document.getElementById('lightbox')) closeLightbox(); }
 function lbNav(dir) { lbIndex = (lbIndex + dir + currentPhotos.length) % currentPhotos.length; updateLightbox(); }
+
+// Rotate the open photo another 90°. Signed in -> saved on the server so EVERY
+// viewer sees it upright; anonymous (or server hiccup) -> kept in localStorage
+// so at least this browser remembers.
+async function lbRotate() {
+  const p = currentPhotos[lbIndex];
+  if (!p) return;
+  const next = (effRot(p) + 90) % 360;
+
+  if (currentUser) {
+    try {
+      const res = await authedFetch(`${API_BASE}/api/captures/${encodeURIComponent(p.id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rotation: next }),
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      p.rotation = next;
+      localStorage.removeItem('wildwatch.rot.' + p.id);   // server value rules now
+      showToast(next ? `Rotated ${next}° — saved for everyone` : 'Back to upright — saved for everyone');
+    } catch (e) {
+      // Backend not deployed yet / offline: keep the click useful locally.
+      localStorage.setItem('wildwatch.rot.' + p.id, String(next));
+      showToast('Rotated on this device (could not save to the server)');
+    }
+  } else {
+    localStorage.setItem('wildwatch.rot.' + p.id, String(next));
+    showToast('Rotated on this device — sign in to save it for everyone');
+  }
+
+  updateLightbox();   // re-draw the big image + boxes at the new angle
+  // Nudge the matching grid card too (same index — the grid renders currentPhotos).
+  const card = document.getElementById('photoGrid').children[lbIndex];
+  if (card) applyRotation(card.querySelector('img'), card.querySelector('canvas.det-overlay'), next);
+}
 function updateLightbox() {
   const p = currentPhotos[lbIndex];
   if (!p) return;
@@ -1770,6 +1901,7 @@ function updateLightbox() {
         lbCv.style.left = img.offsetLeft + 'px';
         lbCv.style.top = img.offsetTop + 'px';
         drawDetBoxes(img, lbCv, p.detections);
+        applyRotation(img, lbCv, effRot(p));
       };
       if (img.complete && img.naturalWidth) draw();
       else img.addEventListener('load', draw, { once: true });

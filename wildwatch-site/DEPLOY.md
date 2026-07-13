@@ -62,5 +62,10 @@ No schema, backend, or firmware changes depend on this page.
   The boxes + titles light up automatically once it does.
 - AI analysis of new photos is triggered while dashboard/gallery pages are
   open (`/api/analyze-pending`); a scheduled trigger is a good follow-up.
-- View-only photo rotation and per-browser stream addresses are localStorage,
-  not synced.
+- Photo rotation: a signed-in user's rotation is SAVED for everyone (PATCH
+  /api/captures/[id] — needs PR #58 deployed); anonymous viewers' rotations
+  stay localStorage, this-device-only. Per-camera stream addresses stay
+  localStorage.
+- The Library loads the newest 100 photos and pages back via "Load older
+  photos" (deep history needs PR #58's cursor; until then it reaches only the
+  newest ~200).
