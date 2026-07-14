@@ -69,6 +69,10 @@ export async function GET(req: NextRequest) {
         // no OTA has been attempted yet on this camera. Shape:
         //   { result, from, to, durationS, ts }
         lastOta: state.lastOta ?? null,
+        // LAN address of the camera's live MJPEG server, reported while the
+        // board is in live (USB-powered) mode. Only useful to viewers on the
+        // same network; null when the camera is deep-sleeping on battery.
+        localIp: state.localIp ?? null,
         command: node.command ?? 'idle',
         // Per-camera motion-burst capture settings the operator has set (null
         // until first configured -> the camera runs its firmware defaults).
