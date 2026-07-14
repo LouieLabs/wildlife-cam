@@ -1527,15 +1527,25 @@ function buildCameras() {
     Object.assign(byId[d.deviceId], {
       battery: d.battery, lastUpdate: d.lastUpdate, wifiSsid: d.wifiSsid,
       settings: d.settings, firmware: d.firmwareVersion, mac: d.mac,
+      cloudStatus: d.status, localIp: d.localIp,
     });
   }
-  CAMERAS = Object.values(byId).map(c => ({
-    ...c,
-    // Optional LOCAL live-stream address (the streaming firmware on your own
-    // network). Saved per camera in this browser only.
-    host: localStorage.getItem('wildwatch.host.' + c.id) || '',
-    status: camStatus(c),
-  })).sort((a, b) => a.name.localeCompare(b.name));
+  CAMERAS = Object.values(byId).map(c => {
+    // A USB-powered camera reports status "streaming" + its LAN address every
+    // minute. Fresh report -> it's live RIGHT NOW; auto-connect to its stream
+    // (a manually saved address still wins). Only reachable on the same network.
+    const streaming = c.cloudStatus === 'streaming' &&
+      c.lastUpdate && (Date.now() - c.lastUpdate) < 3 * 60 * 1000;
+    return {
+      ...c,
+      streaming,
+      // Live-stream address: this browser's saved one, else the camera's own
+      // reported LAN address while it's streaming.
+      host: localStorage.getItem('wildwatch.host.' + c.id) ||
+            (streaming && c.localIp ? 'http://' + c.localIp : ''),
+      status: camStatus(c),
+    };
+  }).sort((a, b) => a.name.localeCompare(b.name));
 }
 // "online" = the camera checked in (or uploaded a photo) within ~3 minutes.
 // These cameras deep-sleep between wake-ups (~30 s), so fresher than 3 min
@@ -3113,8 +3123,8 @@ function renderLiveGrid() {
     return `
       <div class="cam-tile" onclick="openLive('${c.id}')">
         <img src="${camThumb(c)}" alt="${c.name}" loading="lazy">
-        <div class="cam-status ${c.status}"><span class="s-dot"></span>${c.status === 'online' ? 'online' : 'sleeping'}</div>
-        ${c.status === 'online' ? '<div class="cam-tile-live">Live</div>' : ''}
+        <div class="cam-status ${c.streaming ? 'online' : c.status}"><span class="s-dot"></span>${c.streaming ? 'streaming' : c.status === 'online' ? 'online' : 'sleeping'}</div>
+        ${c.streaming ? '<div class="cam-tile-live">LIVE</div>' : ''}
         <div class="cam-tile-overlay">
           <div class="cam-tile-name">${c.name}</div>
           <div class="cam-tile-meta">${c.photos} photo${c.photos !== 1 ? 's' : ''} · ${seen}${batt}</div>
