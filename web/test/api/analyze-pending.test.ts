@@ -51,7 +51,7 @@ describe('POST /api/analyze-pending (dashboard-triggered in-cloud AI)', () => {
     const res = await POST(makeRequest({ method: 'POST' }));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ scanned: 3, analyzed: 2, errors: 1 });
-    expect(m.analyzePendingCaptures).toHaveBeenCalledWith(3);
+    expect(m.analyzePendingCaptures).toHaveBeenCalledWith(6);
   });
 
   it('500s (not crashes) when the analyzer throws', async () => {

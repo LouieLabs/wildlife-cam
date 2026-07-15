@@ -58,7 +58,7 @@ describe('POST /api/analyze-cron (scheduled + public-tick AI trigger)', () => {
   it('scheduled mode (valid x-camera-api-key): full batch, no tick lock', async () => {
     const res = await POST(makeRequest({ method: 'POST', headers: { 'x-camera-api-key': KEY } }));
     expect(res.status).toBe(200);
-    expect(m.analyzePendingCaptures).toHaveBeenCalledWith(3);
+    expect(m.analyzePendingCaptures).toHaveBeenCalledWith(8);
     expect(m.runTransaction).not.toHaveBeenCalled();   // scheduler never waits on the lock
   });
 
@@ -66,7 +66,7 @@ describe('POST /api/analyze-cron (scheduled + public-tick AI trigger)', () => {
     const res = await POST(makeRequest({ method: 'POST' }));
     expect(res.status).toBe(200);
     expect(m.txSet).toHaveBeenCalled();                // lock claimed
-    expect(m.analyzePendingCaptures).toHaveBeenCalledWith(2);
+    expect(m.analyzePendingCaptures).toHaveBeenCalledWith(6);
   });
 
   it('public tick inside the 60 s window: skips without analyzing', async () => {
@@ -80,14 +80,14 @@ describe('POST /api/analyze-cron (scheduled + public-tick AI trigger)', () => {
   it('a WRONG api key falls back to the public-tick path (never the full batch)', async () => {
     const res = await POST(makeRequest({ method: 'POST', headers: { 'x-camera-api-key': 'nope' } }));
     expect(res.status).toBe(200);
-    expect(m.analyzePendingCaptures).toHaveBeenCalledWith(2);
+    expect(m.analyzePendingCaptures).toHaveBeenCalledWith(6);
   });
 
   it('an expired lock (older than 60 s) lets a public tick run again', async () => {
     m.state.lockLastRun = Date.now() - 61_000;
     const res = await POST(makeRequest({ method: 'POST' }));
     expect(res.status).toBe(200);
-    expect(m.analyzePendingCaptures).toHaveBeenCalledWith(2);
+    expect(m.analyzePendingCaptures).toHaveBeenCalledWith(6);
   });
 
   it('surfaces an analysis failure as a 500', async () => {

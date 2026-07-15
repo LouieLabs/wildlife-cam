@@ -3438,20 +3438,23 @@ firebase.auth().onAuthStateChanged(async (u) => {
   }
 });
 
-// Keep the gallery fresh: new uploads appear within a minute, no reload needed.
-setInterval(loadCaptures, 60000);
+// Keep the gallery fresh: new uploads appear within ~20 s, no reload needed.
+// (Cheap: /api/captures is one Firestore page read; the server rate limit
+// allows this cadence comfortably.)
+setInterval(loadCaptures, 20000);
 
 // Nudge the in-cloud AI while anyone has the site open, so new photos get
 // analyzed without a signed-in dashboard tab. Fire-and-forget: the server
-// self-throttles (60 s global lock) and treats "nothing pending" as a free
-// no-op, so this costs nothing when the cameras are quiet. Until the backend
-// route deploys this 404s harmlessly.
+// self-throttles (global tick lock) and treats "nothing pending" as a free
+// no-op, so this costs nothing when the cameras are quiet. This is now a
+// FALLBACK -- capture-complete kicks the analyzer the moment a photo lands --
+// so it mainly mops up after server hiccups.
 function kickAnalysis() {
   try { fetch(`${API_BASE}/api/analyze-cron`, { method: 'POST' }).catch(() => {}); }
   catch { /* older browsers: never let this break the gallery */ }
 }
 kickAnalysis();
-setInterval(kickAnalysis, 120000);
+setInterval(kickAnalysis, 45000);
 
 </script>
 </body>

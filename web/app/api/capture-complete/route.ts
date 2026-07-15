@@ -56,6 +56,28 @@ export async function POST(req: NextRequest) {
       createdAt: Date.now(),
     });
 
+    // 3) Kick the analyzer NOW instead of waiting for the next gallery/dashboard
+    // tick (which added up to 2 minutes before a photo could go public). We
+    // self-POST /api/analyze-cron in "scheduled" mode (the CAMERA_API_KEY is in
+    // our own env) and deliberately DON'T wait for the analysis to finish -- the
+    // camera is on battery and must not sit awake through a model call. We wait
+    // just long enough (<=350 ms) for the request to leave this instance, then
+    // respond; the analyze-cron request keeps running on its own.
+    // Any failure here is swallowed: the periodic ticks remain as the fallback.
+    try {
+      const key = process.env.CAMERA_API_KEY || '';
+      if (key) {
+        const ctrl = new AbortController();
+        const abortTimer = setTimeout(() => ctrl.abort(), 3_000);
+        const kick = fetch(new URL('/api/analyze-cron', req.nextUrl.origin), {
+          method: 'POST',
+          headers: { 'x-camera-api-key': key },
+          signal: ctrl.signal,
+        }).catch(() => {}).finally(() => clearTimeout(abortTimer));
+        await Promise.race([kick, new Promise((r) => setTimeout(r, 350))]);
+      }
+    } catch { /* never block or fail the camera's call over this */ }
+
     return NextResponse.json({ id: ref.id, command: 'idle' });
   } catch (err) {
     if (err instanceof HttpError) {

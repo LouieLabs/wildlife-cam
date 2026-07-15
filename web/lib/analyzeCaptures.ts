@@ -250,6 +250,12 @@ export async function detectWithGemini(
   return { detections, boxes, containsPersonOrDog };
 }
 
+// How many Gemini calls run at once inside a batch. A motion BURST drops many
+// photos at nearly the same moment; analyzing them one-by-one serialized the
+// slow model (~10-20 s each) and a 10-photo burst took several minutes to go
+// public. Four concurrent calls keep a whole burst inside one request window.
+const ANALYZE_CONCURRENCY = 4;
+
 // Pick up to `limit` unanalyzed captures, run Gemini on each, update in place.
 // Each doc is independent: one failure doesn't sink the batch, and a failed
 // doc simply stays analyzed:false for the next round.
@@ -263,9 +269,9 @@ export async function analyzePendingCaptures(limit = 5, client?: GenAIClient): P
 
   const result: AnalyzeResult = { scanned: snap.docs.length, analyzed: 0, errors: 0 };
 
-  for (const doc of snap.docs) {
+  async function analyzeOne(doc: (typeof snap.docs)[number]): Promise<void> {
     const data = doc.data() as any;
-    if (!data.objectPath) continue; // can never be analyzed; leave for cleanup
+    if (!data.objectPath) return; // can never be analyzed; leave for cleanup
     try {
       const [jpeg] = await storage.bucket(BUCKET).file(data.objectPath).download();
       const { detections, boxes, containsPersonOrDog } = await detectWithGemini(jpeg, client);
@@ -289,6 +295,11 @@ export async function analyzePendingCaptures(limit = 5, client?: GenAIClient): P
       result.errors++;
       console.error(`[analyze] ${doc.id} (${data.objectPath}) failed:`, err);
     }
+  }
+
+  // Chunked concurrency: up to ANALYZE_CONCURRENCY photos in flight at once.
+  for (let i = 0; i < snap.docs.length; i += ANALYZE_CONCURRENCY) {
+    await Promise.all(snap.docs.slice(i, i + ANALYZE_CONCURRENCY).map(analyzeOne));
   }
   return result;
 }
