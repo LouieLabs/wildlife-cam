@@ -1,11 +1,21 @@
 #include "esp_camera.h"
-#include <WiFi.h>
+#include <WiFi.h>                         // 2.4 GHz Wi-Fi (secondary radio)
+#include <HaLow.h>                        // Wi-Fi HaLow (802.11ah) via the HT-HC01 module — primary link
 #include "esp_http_server.h"
 #include "driver/temperature_sensor.h"   // ESP32-S3 internal (chip die) temp sensor
 #include "time.h"                         // NTP time
-#include <HTTPClient.h>                   // geolocation + weather HTTP calls
-#include <WiFiClientSecure.h>             // HTTPS for the weather API
-#include "secrets.h"                      // WIFI_SSID / WIFI_PASSWORD (gitignored)
+#include <HalowHTTPClient.h>              // geolocation + weather over HaLow (internet via the HT-H7608)
+#include <HalowClientSecure.h>            // HTTPS over HaLow
+// NOTE: the stock <HTTPClient.h> can't be included alongside <HalowHTTPClient.h>
+// (both define the HTTP_CODE_* enum), so all enrichment calls go over HaLow.
+#include "secrets.h"                      // WIFI_SSID / WIFI_PASSWORD / HALOW_* (gitignored)
+
+// --- Wi-Fi HaLow (802.11ah) ---
+// Primary long-range link. The HT-HC33 joins an AP (the HT-H7608 gateway) over
+// the HT-HC01 HaLow module; 2.4 GHz Wi-Fi stays up as a secondary/bench link.
+// HALOW_SSID / HALOW_PASSWORD live in secrets.h. Region sets the sub-GHz band:
+//   "US" = 902–928 MHz. Others: EU/GB 863–868, AU 915.5–927.5, NZ 915–928.
+#define HALOW_REGION "US"
 
 // --- Time / NTP (requires the ESP32 to have internet access) ---
 // POSIX TZ string. Set to US Pacific (auto-handles PST/PDT daylight saving).
@@ -830,25 +840,24 @@ static esp_err_t control_handler(httpd_req_t *req) {
 }
 
 // ---------- Location + weather ----------
+// Enrichment calls (geolocation, weather) need an internet uplink, which in the
+// field is HaLow via the HT-H7608 gateway. All requests go over HaLow's own HTTP
+// client. Cert checks are skipped (no CA store on the device).
 static bool httpGET(const String& url, String& out) {
-  HTTPClient http;
+  if (HaLow.status() != WL_CONNECTED) return false;
+  HalowHTTPClient http;
   http.setConnectTimeout(5000);
   http.setTimeout(5000);
   bool ok = false;
   if (url.startsWith("https")) {
-    WiFiClientSecure client;
+    HalowClientSecure client;
     client.setInsecure();               // no CA store on the device; skip cert check
-    if (http.begin(client, url)) {
-      if (http.GET() == 200) { out = http.getString(); ok = true; }
-      http.end();
-    }
+    if (http.begin(client, url) && http.GET() == 200) { out = http.getString(); ok = true; }
   } else {
-    WiFiClient client;
-    if (http.begin(client, url)) {
-      if (http.GET() == 200) { out = http.getString(); ok = true; }
-      http.end();
-    }
+    HalowClient client;
+    if (http.begin(client, url) && http.GET() == 200) { out = http.getString(); ok = true; }
   }
+  http.end();
   return ok;
 }
 
@@ -1035,10 +1044,24 @@ void setup() {
     temp_sensor = NULL;
   }
 
+  // --- Networking: HaLow primary + 2.4 GHz Wi-Fi secondary ---
+  // Bring up the HaLow link to the HT-H7608 gateway and, in parallel, the 2.4
+  // GHz radio. We block only on HaLow (the field link); Wi-Fi is best-effort and
+  // may legitimately be out of range once deployed. The web server binds to all
+  // interfaces, so the stream is reachable on whichever IP is up.
+  HaLow.init(HALOW_REGION);
+  HaLow.begin(HALOW_SSID, HALOW_PASSWORD);
+  WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  Serial.print("Connecting to WiFi");
-  while (WiFi.status() != WL_CONNECTED) { delay(500); Serial.print("."); }
-  Serial.printf("\n\n>>> Open: http://%s/\n", WiFi.localIP().toString().c_str());
+
+  Serial.print("Connecting HaLow");
+  while (HaLow.status() != WL_CONNECTED) { delay(500); Serial.print("."); }
+  Serial.printf("\n\n>>> HaLow up:  http://%s/   (RSSI %d dBm)\n",
+                HaLow.localIP().toString().c_str(), HaLow.RSSI());
+  if (WiFi.status() == WL_CONNECTED)
+    Serial.printf(">>> Wi-Fi up:  http://%s/\n", WiFi.localIP().toString().c_str());
+  else
+    Serial.println(">>> Wi-Fi (2.4 GHz) not connected yet (ok if out of range)");
 
   // Sync the clock over NTP (needs internet). Non-blocking-ish: try for ~5s,
   // then carry on — sntp keeps retrying in the background once it's running.
