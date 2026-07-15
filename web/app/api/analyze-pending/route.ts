@@ -37,7 +37,8 @@ export async function POST(req: NextRequest) {
 
     // 3 per tick: -pro is slower, and the dashboard re-triggers every 30s, so a
     // backlog still drains steadily while each request stays well under maxDuration.
-    const result = await analyzePendingCaptures(3);
+    // 6 per tick (batch runs concurrently in the lib, so this fits the window).
+    const result = await analyzePendingCaptures(6);
     return NextResponse.json(result);
   } catch (err) {
     if (err instanceof HttpError) {

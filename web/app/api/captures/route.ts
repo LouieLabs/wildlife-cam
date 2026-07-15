@@ -201,7 +201,9 @@ export async function GET(req: NextRequest) {
       }),
     );
 
-    return NextResponse.json(captures, { headers: cors });
+    // no-store: the gallery polls this for freshness -- a browser/proxy-cached
+    // response would silently re-add the latency the polling exists to remove.
+    return NextResponse.json(captures, { headers: { ...cors, 'Cache-Control': 'no-store' } });
   } catch (err) {
     console.error("GET /api/captures failed:", err);
     return NextResponse.json({ error: "Internal error" }, { status: 500, headers: cors });

@@ -30,7 +30,10 @@ export const maxDuration = 120;
 //  - A global 60 s lock (Firestore transaction) collapses any burst of public
 //    ticks into at most one batch per minute, plus a per-IP rate limit.
 const TICK_LOCK_DOC = 'wildlife_meta/analyze_tick';
-const TICK_MIN_INTERVAL_MS = 60_000;
+// 25 s (was 60): with capture-complete now kicking analysis directly and the
+// batch running concurrently, the lock only throttles pile-ups from many open
+// gallery tabs -- it should not itself add a minute of photo latency.
+const TICK_MIN_INTERVAL_MS = 25_000;
 
 function safeEqual(a: string, b: string): boolean {
   const ab = Buffer.from(a);
@@ -77,9 +80,11 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Scheduled callers get the full batch; public ticks a slightly smaller one
-    // (they fire more often and from many browsers).
-    const result = await analyzePendingCaptures(scheduled ? 3 : 2);
+    // Scheduled/keyed callers (Cloud Scheduler, capture-complete's instant kick)
+    // get a burst-sized batch; public ticks a slightly smaller one (they fire
+    // from many browsers). Batches run ANALYZE_CONCURRENCY photos in parallel,
+    // so even the large batch stays well inside maxDuration.
+    const result = await analyzePendingCaptures(scheduled ? 8 : 6);
     return NextResponse.json(result, { headers: cors });
   } catch (err) {
     console.error('[analyze-cron] failed:', err);
