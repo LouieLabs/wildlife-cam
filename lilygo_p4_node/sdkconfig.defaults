@@ -1,0 +1,9 @@
+CONFIG_IDF_TARGET="esp32p4"
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+# Console on the P4's native USB port (same cable used for flashing).
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+# The backend is contacted over HTTPS; certificate bundle keeps it verifying
+# (unlike the S3 sketch's setInsecure() -- IDF makes doing it right easy).
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y

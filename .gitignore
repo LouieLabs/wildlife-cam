@@ -53,3 +53,8 @@ scripts/out/
 **/firestore_export/
 **/database_export/
 **/ui-debug.log
+# ESP-IDF build output (lilygo_p4_node)
+lilygo_p4_node/build/
+lilygo_p4_node/managed_components/
+lilygo_p4_node/sdkconfig
+lilygo_p4_node/sdkconfig.old
