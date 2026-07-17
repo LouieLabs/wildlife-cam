@@ -3,3 +3,7 @@ dependencies:
   idf: ">=5.4"
   # LittleFS for the photo queue (not bundled with IDF).
   joltwallet/littlefs: "^1.16.4"
+  # The P4 has no radio: these bridge the standard esp_wifi API to the onboard
+  # ESP32-C6 companion over SDIO. See net.c / docs/PLAN-lilygo-p4-port.md.
+  espressif/esp_wifi_remote: "*"
+  espressif/esp_hosted: "*"
