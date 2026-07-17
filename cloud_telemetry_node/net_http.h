@@ -1,45 +1,55 @@
 #pragma once
 #include <Arduino.h>
 
-#include <WiFiClient.h>
-#include <WiFiClientSecure.h>
-#include <HTTPClient.h>
 #include <HalowClient.h>
 #include <HalowClientSecure.h>
 #include <HalowHTTPClient.h>
 
 // ---------------------------------------------------------------------------
-// One HTTP door, two radios.
+// One HTTP door for both radios -- built on the HaLow HTTP classes ONLY.
 //
-// In plain words: the standard HTTPClient only speaks through the 2.4 GHz
-// Wi-Fi radio's sockets, and Heltec's HalowHTTPClient (a mirror-image copy of
-// the same class) only speaks through the HaLow module's. The cloud code
-// shouldn't have to care which radio got us online, so this thin wrapper
-// holds one of each and forwards every call to whichever matches
-// netActiveLink(). Only the handful of methods the firmware actually uses
-// are wrapped -- extend it if you need more, the two classes' APIs match
-// one-for-one.
+// In plain words: this wrapper is how all the cloud code makes web requests,
+// whether the board got online over HaLow or over regular 2.4 GHz Wi-Fi. It
+// uses Heltec's Halow* classes for BOTH radios -- and that's not laziness,
+// it's forced (see below). Those classes talk plain internet sockets, so they
+// carry traffic over whichever radio is connected.
+//
+// WHY ONLY THE HALOW CLASSES -- do not "fix" this by adding the stock ones:
+// on the Heltec ESP_HaLow core, the stock <HTTPClient.h>/<WiFiClientSecure.h>
+// and the HaLow copies CANNOT coexist in one sketch, at two levels:
+//   1. <HTTPClient.h> and <HalowHTTPClient.h> both define the same global
+//      HTTP_CODE_* enum -> compile error if any file includes both.
+//   2. The WiFiClientSecure library and the wifi-halow library each compile
+//      their own ssl_client.cpp with IDENTICAL function names
+//      (start_ssl_client, ...) -> duplicate-symbol link error if a sketch
+//      pulls in both libraries at all. Using <HaLow.h> anywhere (net_link.cpp
+//      does) already pulls in wifi-halow, so the stock TLS/HTTP libs are
+//      off-limits for this whole sketch.
+// The Halow* classes are file-copies of the stock ones running on generic
+// lwIP sockets (their DNS helper calls plain dns_gethostbyname -- verified in
+// libheltec_halow.a), so they work over the 2.4 GHz interface too. Full story:
+// docs/HALOW_UPLINK.md.
 //
 // TLS note: like the code it replaced, https:// URLs skip certificate
 // verification (setInsecure) -- acceptable here because every payload that
 // matters is separately authenticated (device secret) or hash-verified (OTA
 // SHA256). See cloud_telemetry_node/README.md.
 //
-// Usage (same shape as HTTPClient):
+// Usage (same shape as the stock HTTPClient):
 //   NetHttp http;
-//   if (!http.begin(url)) return false;     // picks radio + TLS from the URL
+//   if (!http.begin(url)) return false;     // picks TLS vs plain from the URL
 //   http.addHeader("Content-Type", "application/json");
 //   int code = http.POST(body);
 //   http.end();
 // ---------------------------------------------------------------------------
 class NetHttp {
 public:
-  // Parse the URL, pick the radio (from netActiveLink()) and the transport
-  // (https:// -> TLS, http:// -> plain, like requestUploadUrl always did).
+  // Parse the URL and pick the transport (https:// -> TLS, http:// -> plain,
+  // like requestUploadUrl always did). Works over whichever radio is up.
   bool begin(const String &url);
 
   // Socket-level read timeout. Callable before OR after begin() (the OTA code
-  // sets it first); the value is applied to the live client at begin() time.
+  // sets it first); the value is applied at begin() time.
   void setTimeout(uint32_t ms);
 
   void addHeader(const String &name, const String &value);
@@ -51,22 +61,13 @@ public:
   String getString();
   int getSize();
   bool connected();
-  // The response body as a readable stream (for chunked OTA reads). Both
-  // radios' client classes are Streams, so this is radio-agnostic.
+  // The response body as a readable stream (for chunked OTA reads).
   Stream *getStreamPtr();
   void end();
 
 private:
-  bool _useHalow = false;
   uint32_t _timeoutMs = 0;   // 0 = leave the library default
-
-  // 2.4 GHz stack
-  WiFiClient _wifiPlain;
-  WiFiClientSecure _wifiTls;
-  HTTPClient _wifiHttp;
-
-  // HaLow stack (mirror classes from the Heltec wifi-halow library)
-  HalowClient _halowPlain;
-  HalowClientSecure _halowTls;
-  HalowHTTPClient _halowHttp;
+  HalowClient _plain;
+  HalowClientSecure _tls;
+  HalowHTTPClient _http;
 };

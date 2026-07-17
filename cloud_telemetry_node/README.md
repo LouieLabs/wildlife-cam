@@ -92,6 +92,11 @@ haven't registered yet):
   stored HaLow creds just start working.
 - The regulatory region (which sub-GHz channels are legal) is `HALOW_REGION`
   in `node_config.h` — `"US"` today.
+- **One-time board activation**: each Heltec board's HaLow radio must be
+  activated once (`AT+CDKEY=<key>` over serial; key looked up by ChipID at
+  resource.heltec.cn). It persists across reflashes. A never-activated board
+  fails HaLow bring-up no matter what the firmware does — see the procedure
+  in [`docs/HALOW_UPLINK.md`](../docs/HALOW_UPLINK.md).
 - A dashboard-pushed Wi-Fi change (`set_wifi`) is judged by whether the
   **2.4 GHz radio itself** connects — being online via HaLow doesn't commit an
   untested Wi-Fi password. In `"both"` mode the trial stays pending until a
