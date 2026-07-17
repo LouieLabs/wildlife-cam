@@ -1,0 +1,25 @@
+idf_component_register(
+    SRCS
+        "app_main.c"
+        "device_config.c"
+        "provisioning.c"
+        "wake_sources.c"
+        "photo_store.c"
+        "cloud_backend.c"
+        "net.c"
+        "camera_capture.c"
+    INCLUDE_DIRS "."
+    REQUIRES
+        nvs_flash
+        esp_http_client
+        esp-tls
+        mbedtls
+        esp_netif
+        esp_wifi
+        esp_timer
+        esp_driver_gpio
+        esp_hw_support
+        driver
+        json
+        vfs
+)

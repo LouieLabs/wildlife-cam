@@ -1,0 +1,5 @@
+## Managed components pulled from the Espressif registry at build time.
+dependencies:
+  idf: ">=5.4"
+  # LittleFS for the photo queue (not bundled with IDF).
+  joltwallet/littlefs: "^1.16.4"
