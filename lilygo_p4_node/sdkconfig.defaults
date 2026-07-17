@@ -7,3 +7,10 @@ CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 # The backend is contacted over HTTPS; certificate bundle keeps it verifying
 # (unlike the S3 sketch's setInsecure() -- IDF makes doing it right easy).
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+
+# --- WiFi via the ESP32-C6 companion (esp-hosted over SDIO) -------------------
+# Lilygo's C6 pin map matches Espressif's ESP32-P4-Function-EV-Board exactly
+# (CLK18/CMD19/D0-D3=14-17, slave reset 54), so the stock board profile applies.
+CONFIG_SLAVE_IDF_TARGET_ESP32C6=y
+CONFIG_ESP_HOSTED_CP_TARGET_ESP32C6=y
+CONFIG_ESP_HOSTED_P4_DEV_BOARD_FUNC_BOARD=y
