@@ -17,10 +17,12 @@
 #define WIFI_PASSWORD  "your-wifi-password"
 
 // --- HaLow network (optional dev fallback) ---------------------------------
-// Uncomment to bench-test a HaLow network without provisioning. The SSID/PSK are
-// the gateway's HaLow network (different from your 2.4 GHz one).
+// Uncomment to bench-test a HaLow network without provisioning. The SSID/PSK
+// are the gateway's HaLow network (different from your 2.4 GHz one). The PSK
+// is the network's SAE passphrase (HaLow uses WPA3's password scheme -- for
+// our gateways that's the long hex string on the gateway's config page).
 // #define HALOW_SSID  "critterwatch-halow"
-// #define HALOW_PSK   "your-64-hex-char-psk"
+// #define HALOW_PSK   "your-halow-passphrase"
 
 // --- Identity --------------------------------------------------------------
 // The 10-char secret shown when you registered THIS device on the dashboard

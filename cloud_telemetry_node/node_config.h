@@ -32,6 +32,17 @@
 #define DO_CAPTURE_CYCLE   1
 #define CAPTURE_WAIT_MS    5000
 
+// --- HaLow radio (onboard HT-HC01 module) ------------------------------------
+// Regulatory region for the sub-GHz HaLow radio -- picks which channels are
+// legal to transmit on. "US" = United States (902-928 MHz). Change this if a
+// camera is ever deployed outside the US (see the Heltec ESP_HaLow examples
+// for the accepted codes).
+#define HALOW_REGION   "US"
+// How long netConnect() gives the HaLow link to associate + get an address.
+// Sub-GHz association scans more channels than 2.4 GHz and can take longer,
+// so this is deliberately more patient than the 15 s Wi-Fi timeout.
+#define HALOW_CONNECT_TIMEOUT_MS   30000
+
 // --- Duty cycle -------------------------------------------------------------
 // The board wakes, reports ONCE, then deep-sleeps this many seconds. Because
 // deep sleep resets the chip, this number IS the reporting interval.

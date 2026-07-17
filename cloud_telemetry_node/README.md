@@ -71,6 +71,32 @@ haven't registered yet):
 > NVS wins. To force the `secrets.h` path, clear NVS first (`nvs_flash_erase`
 > in firmware or wipe via `esptool erase_flash` and reflash).
 
+## Which radio it uses (HaLow + 2.4 GHz Wi-Fi)
+
+> **Plain words:** the board has two ways onto the internet — **HaLow**, a
+> slow-but-far radio for cameras deployed out in the field (it reaches a
+> gateway up to a kilometer away), and normal **Wi-Fi**, fast but short-range,
+> handy on a bench next to your router. The provisioned `netMode` picks:
+> `"halow"`, `"wifi"`, or `"both"` (= try HaLow first, fall back to Wi-Fi).
+> Once online, everything else — status, photos, commands, OTA — works the
+> same over either radio.
+
+- The connect logic lives in [`net_link.{h,cpp}`](net_link.h); the HTTP calls
+  go through [`net_http.{h,cpp}`](net_http.h), which routes each request over
+  whichever radio is active (the Heltec core uses a separate client stack for
+  HaLow — see the Decision Record in
+  [`docs/HALOW_UPLINK.md`](../docs/HALOW_UPLINK.md)).
+- HaLow credentials come from provisioning (NVS keys `halow_ssid` /
+  `halow_psk`) or the `HALOW_SSID` / `HALOW_PSK` dev fallback in `secrets.h`.
+  Boards provisioned before HaLow landed need **no re-provisioning** — their
+  stored HaLow creds just start working.
+- The regulatory region (which sub-GHz channels are legal) is `HALOW_REGION`
+  in `node_config.h` — `"US"` today.
+- A dashboard-pushed Wi-Fi change (`set_wifi`) is judged by whether the
+  **2.4 GHz radio itself** connects — being online via HaLow doesn't commit an
+  untested Wi-Fi password. In `"both"` mode the trial stays pending until a
+  wake where Wi-Fi actually gets tried.
+
 ## How it talks to the cloud
 - **Status:** HTTPS `PUT` to `…/devices/<id>/state.json` with
   `{status, battery, secret, updatedAt}`. The database rule accepts it only

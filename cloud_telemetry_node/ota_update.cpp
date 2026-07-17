@@ -1,9 +1,8 @@
 #include "ota_update.h"
 #include "node_config.h"    // BOARD_TYPE
 
-#include <WiFi.h>
-#include <WiFiClientSecure.h>
-#include <HTTPClient.h>
+#include "net_link.h"
+#include "net_http.h"
 #include <Update.h>
 #include <mbedtls/sha256.h>
 #include "esp_ota_ops.h"
@@ -14,7 +13,12 @@
 // bench test asserts on the same numbers.
 // ---------------------------------------------------------------------------
 static const int BATTERY_FLOOR_PCT = 40;   // 1.1 MB flash = several seconds of RF -- don't attempt on a dying cell
-static const int RSSI_FLOOR_DBM    = -75;  // below this, Wi-Fi drops mid-flash are common
+static const int RSSI_FLOOR_DBM    = -75;  // below this, 2.4 GHz drops mid-flash are common
+// HaLow gets its own floor: sub-GHz links are routinely healthy at levels that
+// would be unusable on 2.4 GHz (long range is the whole point of HaLow), so
+// judging a HaLow link by the -75 dBm Wi-Fi floor would wrongly refuse OTA on
+// a good link. -90 dBm is conservative for HaLow's low-rate modes.
+static const int HALOW_RSSI_FLOOR_DBM = -90;
 static const uint32_t STALL_GRACE_MS = 15000;  // let the first 15s buffer up before rate-checking
 
 // Fallback budgets when the server payload omits them. Conservative for a
@@ -70,13 +74,16 @@ OtaResult otaShouldAttempt(const OtaTarget &t, WakeReason wr, int batteryPct) {
     return OtaResult::LowBattery;
   }
 
-  // (4) RSSI: a marginal link drops mid-flash and we lose the .bin. WiFi.RSSI()
+  // (4) RSSI: a marginal link drops mid-flash and we lose the .bin. netRSSI()
   //     returns 0 when not connected -- treat that as "unknown, allow" since
-  //     the download will fail fast anyway if the link is really down.
-  int rssi = WiFi.RSSI();
-  if (rssi != 0 && rssi < RSSI_FLOOR_DBM) {
-    Serial.printf("[ota] skipped: RSSI %d dBm < floor %d dBm\n",
-                  rssi, RSSI_FLOOR_DBM);
+  //     the download will fail fast anyway if the link is really down. The
+  //     floor depends on which radio is active (HaLow is healthy at levels
+  //     2.4 GHz isn't -- see the constants above).
+  int rssi = netRSSI();
+  int rssiFloor = (netActiveLink() == NET_LINK_HALOW) ? HALOW_RSSI_FLOOR_DBM
+                                                      : RSSI_FLOOR_DBM;
+  if (rssi != 0 && rssi < rssiFloor) {
+    Serial.printf("[ota] skipped: RSSI %d dBm < floor %d dBm\n", rssi, rssiFloor);
     return OtaResult::LowRssi;
   }
 
@@ -110,12 +117,11 @@ OtaResult otaDownloadAndFlash(const OtaTarget &t) {
   const uint32_t maxSec = t.maxSeconds ? t.maxSeconds : DEFAULT_MAX_SEC;
   const uint32_t minBps = t.minBytesPerSec ? t.minBytesPerSec : DEFAULT_MIN_BPS;
 
-  WiFiClientSecure client;
-  client.setInsecure();   // no cert pinning for v1 -- SHA256 gates the flash
-  HTTPClient http;
+  // No cert pinning for v1 (NetHttp uses setInsecure) -- SHA256 gates the flash.
+  NetHttp http;
   http.setTimeout(maxSec * 1000UL);   // socket-level ceiling, matches our budget
 
-  if (!http.begin(client, t.url)) {
+  if (!http.begin(t.url)) {
     Serial.println("[ota] http.begin failed");
     return OtaResult::DownloadFailed;
   }
@@ -146,7 +152,7 @@ OtaResult otaDownloadAndFlash(const OtaTarget &t) {
   mbedtls_sha256_init(&sha);
   mbedtls_sha256_starts(&sha, 0 /* isSha224 = false */);
 
-  WiFiClient *stream = http.getStreamPtr();
+  Stream *stream = http.getStreamPtr();   // radio-agnostic (WiFiClient or HalowClient)
   uint8_t buf[1024];
   size_t written = 0;
   const uint32_t startMs = millis();

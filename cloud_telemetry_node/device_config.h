@@ -14,9 +14,9 @@
 // to 2.4 GHz). Identity (deviceId + deviceSecret) is shared -- it identifies the
 // camera to the cloud, not to a radio.
 //
-// NOTE: the HaLow radio is not wired into this build yet, so HaLow creds are
-// stored but not used to connect (2.4 GHz works today). Saving them now means no
-// re-provisioning once the HaLow path lands.
+// The HaLow radio is wired in via net_link.cpp (netConnect()), so both sets of
+// credentials are live: boards provisioned before the HaLow path landed pick it
+// up with no re-provisioning -- their stored HaLow creds just start working.
 //
 // Dev fallback: blank fields fall back to compile-time values in secrets.h /
 // node_config.h, so a developer's bench board keeps working. A production image

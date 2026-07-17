@@ -1,10 +1,12 @@
 // ===========================================================================
 // Cloud Telemetry Node  --  Heltec HT-HC33 (ESP32-S3)
 // ---------------------------------------------------------------------------
-// What it does, in plain words: every time it wakes up it connects to Wi-Fi,
-// tells the cloud "I'm online + my battery level", checks if the dashboard
-// asked it to do anything, then goes into the deepest sleep it can for a set
-// number of seconds. Then it wakes and does it again. This keeps power use low.
+// What it does, in plain words: every time it wakes up it gets online (over
+// the long-range HaLow radio in the field, or regular Wi-Fi on a bench --
+// see net_link.h), tells the cloud "I'm online + my battery level", checks if
+// the dashboard asked it to do anything, then goes into the deepest sleep it
+// can for a set number of seconds. Then it wakes and does it again. This
+// keeps power use low.
 //
 // IMPORTANT: This is a *separate operating mode* from the live-stream camera
 // sketch (videowithinterfacesketch). A board that deep-sleeps cannot also run
@@ -14,12 +16,11 @@
 //                              (FQBN heltec:esp_halow:HT-HC33)
 // First: copy secrets.example.h -> secrets.h and fill it in.
 // ===========================================================================
-#include <WiFi.h>
 #include "esp_sleep.h"
-#include "esp_wifi.h"
 
 #include "node_config.h"
 #include "secrets.h"
+#include "net_link.h"
 #include "cloud_backend.h"
 #include "camera_capture.h"
 #include "flash_store.h"
@@ -40,9 +41,8 @@ static void goToDeepSleep(uint32_t seconds) {
   Serial.printf("[sleep] deep sleep for %u s (the chip resets on wake)\n", seconds);
   Serial.flush();
 
-  // Turn the radio fully off before sleeping (lowest current draw).
-  WiFi.disconnect(true);
-  WiFi.mode(WIFI_OFF);
+  // Turn the radios fully off before sleeping (lowest current draw).
+  netShutdown();
 
   // Deep sleep with TWO wake sources: the timer (periodic check-in) and the PIR
   // motion sensor (ext0). Whichever fires first wakes us. We deliberately do NOT
@@ -187,7 +187,7 @@ static void lingerForMotion() {
       // machine-gun the camera (battery + storage).
       if (millis() - lastCaptureMs >= MOTION_MIN_GAP_MS) {
         Serial.println("[linger] motion again -> capture (no reconnect)");
-        if (WiFi.status() != WL_CONNECTED) wifiConnect();  // recover an AP hiccup
+        if (!netIsConnected()) netConnect();  // recover a link hiccup
         captureSaveUpload("PIR");
         lastCaptureMs = millis();
       }
@@ -251,14 +251,19 @@ void setup() {
     goToDeepSleep(SLEEP_SECONDS);
   }
 
-  // 1) Get online. If Wi-Fi won't connect, don't waste battery -- just sleep.
-  bool online = wifiConnect();
+  // 1) Get online (HaLow and/or 2.4 GHz Wi-Fi, per the provisioned netMode).
+  //    If no radio connects, don't waste battery -- just sleep.
+  bool online = netConnect();
 
-  // 1.1) If a dashboard-pushed Wi-Fi change is on trial, judge it by whether we
-  //      just got online. Success commits the new network; repeated failure
-  //      restores the previous one (so a bad password can't strand the camera).
-  if (wifiTrialActive()) {
-    if (wifiTrialResolve(online)) {
+  // 1.1) If a dashboard-pushed Wi-Fi change is on trial, judge it by whether
+  //      the 2.4 GHz radio ITSELF connected -- being online via HaLow says
+  //      nothing about the new Wi-Fi password. In "both" mode HaLow may win
+  //      before Wi-Fi is even tried; then the trial simply stays pending until
+  //      a wake where Wi-Fi actually gets attempted. Success commits the new
+  //      network; repeated failure restores the previous one (so a bad
+  //      password can't strand the camera).
+  if (wifiTrialActive() && netWifiAttempt() != NET_WIFI_SKIPPED) {
+    if (wifiTrialResolve(netWifiAttempt() == NET_WIFI_CONNECTED)) {
       // Just reverted to the old creds -- reboot to reconnect on them.
       Serial.println("[wifi] reverted to previous network -> rebooting");
       Serial.flush();
@@ -268,7 +273,7 @@ void setup() {
   }
 
   if (!online) {
-    Serial.println("[wifi] connect failed -> sleeping");
+    Serial.println("[net] connect failed -> sleeping");
     goToDeepSleep(SLEEP_SECONDS);
   }
 

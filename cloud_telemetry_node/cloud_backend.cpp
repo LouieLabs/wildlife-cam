@@ -4,57 +4,14 @@
 #include "device_config.h"
 #include "version.h"
 
-#include <WiFi.h>
-#include <WiFiClientSecure.h>
-#include <HTTPClient.h>
+#include "net_http.h"
 #include "time.h"
 
 // ---------------------------------------------------------------------------
-// Networking
+// Networking: getting online lives in net_link.cpp (netConnect() handles the
+// HaLow / 2.4 GHz / both logic). Every HTTP call below goes through NetHttp
+// (net_http.h), which routes to whichever radio is active.
 // ---------------------------------------------------------------------------
-
-// Associate to a 2.4 GHz AP (the native ESP32 radio). Returns true on connect.
-static bool wifiStaConnect(const String &ssid, const String &pass, uint32_t timeoutMs) {
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid.c_str(), pass.c_str());
-  Serial.printf("[wifi] connecting to %s", ssid.c_str());
-  uint32_t start = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - start < timeoutMs) {
-    delay(300);
-    Serial.print(".");
-  }
-  Serial.println();
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.printf("[wifi] connected, IP %s\n", WiFi.localIP().toString().c_str());
-    return true;
-  }
-  return false;
-}
-
-// Get online per the provisioned net mode. HaLow and 2.4 GHz are separate
-// radios/networks; "both" tries HaLow first (production long-range) then falls
-// back to 2.4 GHz. NOTE: the HaLow radio is not wired into this build yet, so we
-// log and skip it rather than pretend -- 2.4 GHz works today.
-bool wifiConnect(uint32_t timeoutMs) {
-  if (WiFi.status() == WL_CONNECTED) return true;
-
-  bool wantHalow = (g_cfg.netMode == "halow" || g_cfg.netMode == "both");
-  bool wantWifi  = (g_cfg.netMode == "wifi"  || g_cfg.netMode == "both");
-
-  if (wantHalow) {
-    Serial.printf("[net] HaLow '%s' configured, but the HaLow radio is not enabled "
-                  "in this build -- skipping\n", g_cfg.halowSsid.c_str());
-  }
-  if (wantWifi && g_cfg.wifiSsid.length()) {
-    return wifiStaConnect(g_cfg.wifiSsid, g_cfg.wifiPass, timeoutMs);
-  }
-  if (wantHalow && !wantWifi) {
-    Serial.println("[net] HaLow-only and HaLow not yet supported in firmware -> cannot connect");
-  } else {
-    Serial.println("[net] no usable 2.4 GHz SSID configured -> cannot connect");
-  }
-  return false;
-}
 
 // ---------------------------------------------------------------------------
 // Battery (stubbed until a real sense pin + divider ratio are provided)
@@ -130,10 +87,8 @@ bool reportStatus(const StatusReport &r) {
   }
   body += "}";
 
-  WiFiClientSecure client;
-  client.setInsecure();   // skip TLS cert check -- fine for testing; see README
-  HTTPClient https;
-  if (!https.begin(client, url)) {
+  NetHttp https;
+  if (!https.begin(url)) {
     Serial.println("[report] https.begin failed");
     return false;
   }
@@ -168,14 +123,10 @@ Command getCommand() {
   out.hasRename = false;
 
   String url = String(BACKEND_BASE_URL) + "/api/command-poll";
-  // Match the transport to the URL scheme (deployed backend is https://, a
-  // local dev server is http://) -- same approach as requestUploadUrl().
-  bool secure = url.startsWith("https:");
-  WiFiClient plain;
-  WiFiClientSecure tls;
-  if (secure) tls.setInsecure();   // skip cert check (testing); see README
-  HTTPClient http;
-  if (!http.begin(secure ? (WiFiClient &)tls : (WiFiClient &)plain, url)) return out;
+  // NetHttp matches the transport to the URL scheme (deployed backend is
+  // https://, a local dev server is http://) and picks the active radio.
+  NetHttp http;
+  if (!http.begin(url)) return out;
   http.addHeader("Content-Type", "application/json");
   http.addHeader("x-device-secret", g_cfg.deviceSecret);
 
@@ -242,12 +193,8 @@ Command getCommand() {
 // POST /api/command-ack -- tell the backend we applied a one-shot command.
 bool ackCommand() {
   String url = String(BACKEND_BASE_URL) + "/api/command-ack";
-  bool secure = url.startsWith("https:");
-  WiFiClient plain;
-  WiFiClientSecure tls;
-  if (secure) tls.setInsecure();   // skip cert check (testing); see README
-  HTTPClient http;
-  if (!http.begin(secure ? (WiFiClient &)tls : (WiFiClient &)plain, url)) return false;
+  NetHttp http;
+  if (!http.begin(url)) return false;
   http.addHeader("Content-Type", "application/json");
   http.addHeader("x-device-secret", g_cfg.deviceSecret);
   String reqBody = String("{\"deviceId\":\"") + g_cfg.deviceId + "\"}";
@@ -334,15 +281,10 @@ String jsonSubObject(const String &json, const char *key) {
 
 String requestUploadUrl(String &objectNameOut, const char *wakeReason, long long capturedAtMs) {
   String url = String(BACKEND_BASE_URL) + "/api/get-upload-url";
-  // Pick the transport from the URL scheme: the deployed Cloud Run backend is
-  // https://, a local `npm run dev` server is http://. (WiFiClientSecure is a
-  // WiFiClient, so the same HTTPClient.begin overload takes either.)
-  bool secure = url.startsWith("https:");
-  WiFiClient plain;
-  WiFiClientSecure tls;
-  if (secure) tls.setInsecure();   // skip cert check (testing); see README
-  HTTPClient http;
-  if (!http.begin(secure ? (WiFiClient &)tls : (WiFiClient &)plain, url)) return "";
+  // NetHttp picks the transport from the URL scheme: the deployed Cloud Run
+  // backend is https://, a local `npm run dev` server is http://.
+  NetHttp http;
+  if (!http.begin(url)) return "";
   http.addHeader("Content-Type", "application/json");
   http.addHeader("x-device-secret", g_cfg.deviceSecret);
 
@@ -365,10 +307,8 @@ String requestUploadUrl(String &objectNameOut, const char *wakeReason, long long
 
 bool uploadJpeg(const String &signedUrl, const uint8_t *data, size_t len) {
   // The signed URL points at storage.googleapis.com -> HTTPS.
-  WiFiClientSecure client;
-  client.setInsecure();   // skip cert check (testing); see README
-  HTTPClient https;
-  if (!https.begin(client, signedUrl)) return false;
+  NetHttp https;
+  if (!https.begin(signedUrl)) return false;
   // Content-Type MUST match what the URL was signed with (image/jpeg).
   https.addHeader("Content-Type", "image/jpeg");
   int code = https.sendRequest("PUT", (uint8_t *)data, len);
@@ -378,10 +318,8 @@ bool uploadJpeg(const String &signedUrl, const uint8_t *data, size_t len) {
 }
 
 bool uploadStream(const String &signedUrl, Stream &stream, size_t len) {
-  WiFiClientSecure client;
-  client.setInsecure();   // skip cert check (testing); see README
-  HTTPClient https;
-  if (!https.begin(client, signedUrl)) return false;
+  NetHttp https;
+  if (!https.begin(signedUrl)) return false;
   https.addHeader("Content-Type", "image/jpeg");
   int code = https.sendRequest("PUT", &stream, len);
   https.end();
@@ -391,12 +329,8 @@ bool uploadStream(const String &signedUrl, Stream &stream, size_t len) {
 
 bool captureComplete(const String &objectName) {
   String url = String(BACKEND_BASE_URL) + "/api/capture-complete";
-  bool secure = url.startsWith("https:");
-  WiFiClient plain;
-  WiFiClientSecure tls;
-  if (secure) tls.setInsecure();   // skip cert check (testing); see README
-  HTTPClient http;
-  if (!http.begin(secure ? (WiFiClient &)tls : (WiFiClient &)plain, url)) return false;
+  NetHttp http;
+  if (!http.begin(url)) return false;
   http.addHeader("Content-Type", "application/json");
   http.addHeader("x-device-secret", g_cfg.deviceSecret);
 

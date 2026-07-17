@@ -72,8 +72,9 @@ Suggested test protocol:
 Data lives in the plan doc's Decision Record when it exists. Feeds directly
 into the backend's `otaTarget` computation in `/api/firmware/publish`.
 
-**Depends on.** A HaLow-wired firmware build (today, the code notes the HaLow
-radio isn't wired in — see comment in `cloud_backend.cpp`).
+**Depends on.** A HaLow-wired firmware build — **unblocked 2026-07-17**: the
+HT-HC33 HaLow uplink is wired in (see `docs/HALOW_UPLINK.md` and
+`cloud_telemetry_node/net_link.cpp`). Still needs bench boards + a gateway.
 
 ### 3. OTA history log (audit trail)
 

@@ -85,6 +85,13 @@ struct OtaTarget {
 // ===========================================================================
 static const int BATTERY_FLOOR_PCT = 40;
 static const int RSSI_FLOOR_DBM    = -75;
+static const int HALOW_RSSI_FLOOR_DBM = -90;   // HaLow links are healthy at levels 2.4 GHz isn't
+
+// Bench stand-ins for net_link.h (this sketch runs with the radios off): the
+// fleet code reads netRSSI() / netActiveLink(); here RSSI comes from the off
+// Wi-Fi radio (always 0 = "unknown") and the active link is never HaLow.
+static int  netRSSI()        { return WiFi.RSSI(); }
+static bool netLinkIsHalow() { return false; }
 
 static const char *otaResultString(OtaResult r) {
   switch (r) {
@@ -107,8 +114,9 @@ static OtaResult otaShouldAttempt(const OtaTarget &t, WakeReason wr, int battery
   if (t.boardType != BOARD_TYPE_LOCAL) return OtaResult::BoardTypeMismatch;
   if (wr == WakeReason::Pir)            return OtaResult::BadWakeReason;
   if (batteryPct < BATTERY_FLOOR_PCT)   return OtaResult::LowBattery;
-  int rssi = WiFi.RSSI();
-  if (rssi != 0 && rssi < RSSI_FLOOR_DBM) return OtaResult::LowRssi;
+  int rssi = netRSSI();
+  int rssiFloor = netLinkIsHalow() ? HALOW_RSSI_FLOOR_DBM : RSSI_FLOOR_DBM;
+  if (rssi != 0 && rssi < rssiFloor) return OtaResult::LowRssi;
   return OtaResult::Ok;
 }
 

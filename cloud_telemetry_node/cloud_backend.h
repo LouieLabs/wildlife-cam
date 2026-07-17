@@ -5,9 +5,10 @@
 // Small, self-contained helpers for talking to the Louie Labs cloud backend.
 // Kept separate from the main sketch so the networking code stays tidy and
 // easy to reuse.
-
-// Connect to Wi-Fi. Returns true once connected (or false on timeout).
-bool wifiConnect(uint32_t timeoutMs = 15000);
+//
+// Getting online moved to net_link.h (netConnect()) when the HaLow radio was
+// wired in -- these helpers assume the link is already up and work over
+// whichever radio (HaLow or 2.4 GHz Wi-Fi) netConnect() picked.
 
 // Battery percentage (0-100). Stubbed to a test value until BATTERY_ADC_PIN
 // is set in node_config.h.

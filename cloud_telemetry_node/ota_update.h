@@ -92,8 +92,8 @@ enum class WakeReason { Cold, Timer, Pir, Button };
 // the specific reason (which doubles as state.lastOta.result if the caller
 // wants to report the skip).
 //
-// batteryPct: 0-100, from readBatteryPercent(). Wi-Fi RSSI is read directly
-// from WiFi.RSSI() so this must be called AFTER wifiConnect().
+// batteryPct: 0-100, from readBatteryPercent(). Link RSSI is read directly
+// from netRSSI() so this must be called AFTER netConnect().
 OtaResult otaShouldAttempt(const OtaTarget &t, WakeReason wr, int batteryPct);
 
 // Download the .bin, verify SHA256 in-flight, write it into the inactive OTA
