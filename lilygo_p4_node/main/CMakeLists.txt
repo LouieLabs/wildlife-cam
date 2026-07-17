@@ -18,6 +18,8 @@ idf_component_register(
         esp_wifi
         esp_timer
         esp_driver_gpio
+        esp_driver_i2c
+        esp_video
         esp_hw_support
         driver
         json

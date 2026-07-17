@@ -7,3 +7,7 @@ dependencies:
   # ESP32-C6 companion over SDIO. See net.c / docs/PLAN-lilygo-p4-port.md.
   espressif/esp_wifi_remote: "*"
   espressif/esp_hosted: "*"
+  # MIPI-CSI camera + hardware JPEG (pulls esp_cam_sensor / esp_ipa / esp_h264
+  # transitively). Pinned to 0.9.1 -- the version Lilygo ships and tests on this
+  # exact board; newer majors rename Kconfig symbols out from under us.
+  espressif/esp_video: "0.9.1"

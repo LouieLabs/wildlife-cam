@@ -14,3 +14,29 @@ CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
 CONFIG_SLAVE_IDF_TARGET_ESP32C6=y
 CONFIG_ESP_HOSTED_CP_TARGET_ESP32C6=y
 CONFIG_ESP_HOSTED_P4_DEV_BOARD_FUNC_BOARD=y
+
+# --- Camera (MIPI-CSI -> hardware JPEG) --------------------------------------
+# PSRAM is mandatory for the video pipeline on the P4 (frame buffers live
+# there); hex mode @200MHz matches Lilygo's own camera example.
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_HEX=y
+CONFIG_SPIRAM_SPEED_200M=y
+CONFIG_CACHE_L2_CACHE_256KB=y
+CONFIG_CACHE_L2_CACHE_LINE_128B=y
+# esp_video requires this (both Lilygo's and Espressif's examples set it).
+CONFIG_IDF_EXPERIMENTAL_FEATURES=y
+# RAW10 sensor output needs the ISP pipeline to become RGB.
+CONFIG_ESP_VIDEO_ENABLE_ISP_PIPELINE_CONTROLLER=y
+# ⚠️ CRITICAL, and NOT set in Lilygo's example (they only stream to an LCD and
+# never encode): this is what creates the /dev/video10 hardware JPEG M2M
+# device. The OV2710 CANNOT emit JPEG itself -- the sensor gives RAW10, the ISP
+# makes RGB565, and the encoder turns that into the JPEG we upload. Without
+# this flag there is no /dev/video10 and capture fails at runtime.
+CONFIG_ESP_VIDEO_ENABLE_HW_JPEG_VIDEO_DEVICE=y
+# Sensor selection. OV2710 is what Lilygo's example + IPA tuning target, so it
+# is the best-supported module for this board. Swap these three if you attach a
+# different sensor (SC2336 / OV5645 are the vendor-supported alternates).
+CONFIG_CAMERA_OV2710=y
+CONFIG_CAMERA_OV2710_MIPI_RAW10_1280X720_25FPS=y
+# Auto-detect is default-on, so no manual ov2710_detect() call is needed.
+CONFIG_FREERTOS_TIMER_TASK_STACK_DEPTH=8192
