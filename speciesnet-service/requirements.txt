@@ -1,0 +1,8 @@
+# Pinned so the baked model weights and the predict() call signature can't
+# drift out from under the Dockerfile. If you bump speciesnet, re-verify:
+# the predict(filepaths=, country=, admin1_region=, run_mode=) kwargs and the
+# record keys (detections[].conf/bbox/category, prediction, model_version).
+speciesnet==5.0.5
+Pillow>=10,<12
+flask>=3,<4
+gunicorn>=22,<24
