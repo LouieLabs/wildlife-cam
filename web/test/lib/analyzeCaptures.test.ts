@@ -475,13 +475,25 @@ describe('analyzeImage (two-model routing)', () => {
     expect(res.isPublic).toBe(false);
   });
 
-  it('two floors: gate-pass at 0.25 still yields no saved animal (save floor 0.3)', async () => {
+  it('gate at 0.6: a mid-confidence SpeciesNet detection (0.5) is treated as empty', async () => {
+    // Human review of real captures set the bar at ~0.6 — below it the detector's
+    // hits on these frames were noise, so the frame is treated as empty and Gemini
+    // never runs.
+    const res = await analyzeImage(fakeJpeg(1000, 1000), {
+      gemini: geminiMustNotRun,
+      speciesnet: fakeSpeciesNet([snDet({ confidence: 0.5 })]),
+    });
+    expect(res.analyzedBy).toBe('speciesnet-gate');
+    expect(res.detections).toEqual([]);
+  });
+
+  it('gate at 0.6: a confident detection (0.6+) passes and runs Gemini', async () => {
     const res = await analyzeImage(fakeJpeg(1000, 1000), {
       gemini: fakeVertex('[]'),
-      speciesnet: fakeSpeciesNet([snDet({ confidence: 0.25 })]),
+      speciesnet: fakeSpeciesNet([snDet({ label: 'raccoon', confidence: 0.6 })]),
     });
-    // Above the 0.2 gate (Gemini ran) but below the 0.3 save floor (dropped).
+    // Gemini ran but returned []; miss-recovery keeps the confident SpeciesNet find.
     expect(res.analyzedBy).toMatch(/^speciesnet-gate\+vertex:/);
-    expect(res.detections).toEqual([]);
+    expect(res.detections).toEqual([expect.objectContaining({ label: 'raccoon' })]);
   });
 });
