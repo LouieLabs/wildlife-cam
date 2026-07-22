@@ -135,7 +135,7 @@ dashboard (any signed-in user, every 30 s)
   `GEMINI_MODEL` (default `gemini-2.5-flash`),
   `DETECTION_MIN_CONFIDENCE` (default `0.3`), `REGION_SPECIES` (species hint),
   `SPECIESNET_SERVICE_URL` (unset = SpeciesNet gate OFF),
-  `SPECIESNET_GATE_MIN_CONFIDENCE` (default `0.2`),
+  `SPECIESNET_GATE_MIN_CONFIDENCE` (default `0.6`),
   `SPECIESNET_TIMEOUT_MS` (default `20000`).
 
 **One-time GCP setup** (or the first analysis calls will 403):

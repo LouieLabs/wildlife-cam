@@ -60,9 +60,17 @@ const MIN_CONFIDENCE = Number(process.env.DETECTION_MIN_CONFIDENCE ?? '0.3');
 // The GATE floor — distinct from MIN_CONFIDENCE above on purpose. MIN_CONFIDENCE
 // filters what we SAVE; this filters what counts as "something is in the frame"
 // at all. A SpeciesNet detection below this bar is treated as noise and the
-// frame as empty (Gemini never runs). Privacy is still computed from the RAW
-// list BEFORE this floor — a faint person always keeps the photo private.
-const SPECIESNET_MIN_CONFIDENCE = Number(process.env.SPECIESNET_GATE_MIN_CONFIDENCE ?? '0.2');
+// frame as empty (Gemini never runs).
+//
+// Set to 0.6 after a human-judged review of 172 real captures: below ~0.6 the
+// detector's hits on these frames were spurious (weak "person" on empty yards),
+// while its real animals scored well above it. Tune via env without a redeploy.
+//
+// NOTE this is the ANIMAL/attention gate only. Privacy is still computed from
+// the RAW detection list BEFORE this floor (see speciesnetSaysPersonOrDog), so a
+// faint possible person keeps the photo private even though it's below 0.6 —
+// fail-safe toward privacy, deliberately not subject to this threshold.
+const SPECIESNET_MIN_CONFIDENCE = Number(process.env.SPECIESNET_GATE_MIN_CONFIDENCE ?? '0.6');
 
 // One retry on a transient Vertex hiccup (429/503/socket). Cheap insurance so a
 // single blip doesn't leave a photo stuck "pending" until the next dashboard tick.
