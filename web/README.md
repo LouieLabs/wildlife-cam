@@ -133,12 +133,18 @@ dashboard (any signed-in user, every 30 s)
   faint "maybe a person" still forces the capture private (fail-safe privacy).
 - Config (all optional): `VERTEX_LOCATION` (default `us-central1`),
   `GEMINI_MODEL` (default `gemini-2.5-flash`),
-  `DETECTION_MIN_CONFIDENCE` (default `0.3`), `REGION_SPECIES` (species hint).
+  `DETECTION_MIN_CONFIDENCE` (default `0.3`), `REGION_SPECIES` (species hint),
+  `SPECIESNET_SERVICE_URL` (unset = SpeciesNet gate OFF),
+  `SPECIESNET_GATE_MIN_CONFIDENCE` (default `0.2`),
+  `SPECIESNET_TIMEOUT_MS` (default `20000`).
 
 **One-time GCP setup** (or the first analysis calls will 403):
 1. Enable the **Vertex AI API** on `louielabs-animal-cams`.
 2. Grant `cloud-backend@louielabs-animal-cams.iam.gserviceaccount.com` the
    **Vertex AI User** role (IAM page).
+3. (SpeciesNet gate only) Deploy `speciesnet-service/` and grant
+   `cloud-backend@…` **Cloud Run Invoker** on it — the exact commands are in
+   `speciesnet-service/README.md`.
 
 Decision record (2026-07-03): **in-cloud Gemini over an external worker.**
 An external analyzer (SpeciesNet worker, PR #39, reverted in PR #40) needed a
@@ -147,6 +153,28 @@ a public server-to-server surface to defend. Running the model call inside the
 backend removes both (nothing new to secure) at the cost of tying analysis to
 Google's hosted model. Planned next steps: a Python Cloud Run job adds YOLOv8
 alongside Gemini; later, a tiny on-device model gates uploads at the camera.
+
+Decision record (2026-07-22): **SpeciesNet revived as a pre-detection gate —
+the PR #39/#40 objections no longer apply.** PR #39's worker ran *outside* the
+backend: a polling script that needed the shared `CAMERA_API_KEY` handed to
+whoever ran it, plus a public server-to-server surface to defend. The revival
+keeps SpeciesNet but removes both problems: it now runs as a **private Cloud
+Run service the backend calls itself** (`speciesnet-service/`), authenticated
+the same keyless way as everything else — the backend mints a short-lived
+Google ID token, and Cloud Run IAM rejects any caller without `run.invoker`.
+No shared key exists; no public surface exists. In plain words: instead of
+trusting Gemini to look at every photo cold, we first ask a specialist
+camera-trap model "is there actually an animal here, and where?". If it sees
+nothing we skip Gemini entirely — which kills the old false alarms (a ceiling
+light labeled as a deer) and saves money, since most motion photos are empty.
+If it finds an animal, Gemini still runs, primed with the specialist's answer
+to confirm or correct. We keep the specialist's boxes (more accurate), take
+Gemini's name only when it's a real species, and if Gemini comes back empty we
+trust the specialist rather than dropping to "nothing found" — so real animals
+stop slipping through. The privacy gate is the **union** of both models: a
+person or dog flagged by *either* keeps the photo private. The whole thing is
+behind one switch (`SPECIESNET_SERVICE_URL`): unset, the pipeline is exactly
+the old Gemini-only path — which is also the instant rollback.
 
 ---
 

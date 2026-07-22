@@ -1,0 +1,33 @@
+{
+  "filepath": "test-photos/wildcam_20260627_135921.jpg",
+  "country": "USA",
+  "admin1_region": "CA",
+  "classifications": {
+    "classes": [
+      "f1856211-cfb7-4a5b-9158-c0f72fd09ee6;;;;;;blank",
+      "990ae9dd-7a59-4344-afcb-1b7b21368000;mammalia;primates;hominidae;homo;sapiens;human",
+      "aca65aaa-8c6d-4b69-94de-842b08b13bd6;mammalia;artiodactyla;bovidae;bos;taurus;domestic cattle",
+      "23cb5482-930c-42ef-8ee6-e36234107ea1;aves;procellariiformes;procellariidae;pterodroma;defilippiana;masatierra petrel",
+      "539ebd55-081b-429a-9ae6-5a6a0f6999d4;mammalia;artiodactyla;bovidae;bison;bison;american bison"
+    ],
+    "scores": [0.8505, 0.1127, 0.0116, 0.0031, 0.0028]
+  },
+  "detections": [
+    {
+      "category": "2",
+      "label": "human",
+      "conf": 0.7047,
+      "bbox": [0.6875, 0.0, 0.3125, 0.3979]
+    },
+    {
+      "category": "3",
+      "label": "vehicle",
+      "conf": 0.6208,
+      "bbox": [0.0, 0.0, 1.0, 1.0]
+    }
+  ],
+  "prediction": "990ae9dd-7a59-4344-afcb-1b7b21368000;mammalia;primates;hominidae;homo;sapiens;human",
+  "prediction_score": 0.7047,
+  "prediction_source": "detector",
+  "model_version": "4.0.3a"
+}
