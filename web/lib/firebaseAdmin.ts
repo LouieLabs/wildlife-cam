@@ -20,7 +20,7 @@ const app: App = getApps().length
 
 export const adminApp = app;
 
-// Firestore -- the wildlife_detections collection (image URLs + Gemini boxes).
+// Firestore -- the wildlife_detections collection (image URLs + detection boxes).
 // NOTE: this project uses a NAMED Firestore database, not the "(default)" one,
 // so we must pass its id explicitly.
 export const adminFirestore = getFirestore(

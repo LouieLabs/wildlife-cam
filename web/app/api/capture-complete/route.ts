@@ -13,7 +13,7 @@ export const runtime = 'nodejs';
 //     the command path (rules), so the server does it here, which stops the
 //     camera re-shooting on every wake.
 //  2) record the capture in Firestore (wildlife_detections) as "not analyzed
-//     yet"; a later Gemini step fills in the bounding boxes.
+//     yet"; a later analysis step fills in the bounding boxes.
 // Authenticated via the per-device secret in the x-device-secret header.
 export async function POST(req: NextRequest) {
   const rl = await checkRateLimit({
@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
     // 2) record the capture (analysis pending)
     //
     // Fields with default values matter once /api/captures starts serving the
-    // student gallery: `public` gates the unauth view (Gemini will set true /
+    // student gallery: `public` gates the unauth view (the analyzer sets true /
     // false based on person/dog/deterrent-cam detection), and temperatureF /
     // humidityPercent are reserved for a future per-camera weather lookup
     // (and eventually an onboard sensor). See docs/wildwatch-student-guide.md §04.
@@ -48,9 +48,9 @@ export async function POST(req: NextRequest) {
       env: APP_ENV, // tag so dev records can be purged without touching prod
       objectPath: objectPath || null,
       capturedAt: Date.now(),
-      detections: [], // Gemini fills this in later
+      detections: [], // the analyzer fills this in later
       analyzed: false,
-      public: false,           // safer default — Gemini sets true after verifying no person/dog
+      public: false,           // safer default — set true only after verifying no person/dog
       temperatureF: null,      // city-weather lookup (planned) or onboard sensor (later) will fill these
       humidityPercent: null,
       createdAt: Date.now(),

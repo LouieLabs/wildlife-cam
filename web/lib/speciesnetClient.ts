@@ -1,9 +1,8 @@
 // Client for the private SpeciesNet Cloud Run service (speciesnet-service/).
 //
-// In plain words: before we ask Gemini about a photo, we ask a specialist
-// camera-trap model ("is there actually an animal here, and where?"). That
-// specialist runs as our own private Cloud Run service. This file is the
-// phone line to it.
+// In plain words: this is the phone line to the model that identifies animals.
+// We send it a photo; it answers "is there an animal here, where is it, and
+// what species?". The model runs as our own private Cloud Run service.
 //
 // Auth (why there is STILL no API key): the service only accepts callers that
 // Cloud Run's own IAM layer recognizes. We prove who we are with a short-lived
@@ -12,15 +11,15 @@
 // rtdb.ts, except Cloud Run wants an OIDC *identity* token (aud = the service
 // URL) rather than an OAuth *access* token, so we go through getIdTokenClient.
 //
-// Feature switch: SPECIESNET_SERVICE_URL unset/empty = OFF. The analyzer then
-// runs exactly the old Gemini-only path — that's also the instant rollback.
+// Feature switch: SPECIESNET_SERVICE_URL unset/empty = OFF. Analysis then does
+// not run at all and captures stay pending until the service is deployed.
 
 import { GoogleAuth } from 'google-auth-library';
 
 const SERVICE_URL = process.env.SPECIESNET_SERVICE_URL || '';
 // Warm calls take ~2-5 s; a COLD instance can take ~40-60 s to load the model.
-// We'd rather time out and fall back to Gemini-only for one photo than hold a
-// batch hostage — the next photo hits the now-warm service.
+// We'd rather time out and leave one photo pending than hold a whole batch
+// hostage — the next tick hits the now-warm service.
 const TIMEOUT_MS = Number(process.env.SPECIESNET_TIMEOUT_MS ?? '20000');
 
 const auth = new GoogleAuth(); // module-level singleton, keyless ADC
@@ -32,7 +31,7 @@ export type SpeciesNetDetection = {
   label: string | null;   // species common name ("mule deer"), null if unknown
   confidence: number;     // 0..1
   box: number[];          // [x, y, w, h] PIXELS, top-left origin (dashboard-native)
-  boxNorm: number[];      // [x, y, w, h] normalized 0..1 (for Gemini prompt hints)
+  boxNorm: number[];      // [x, y, w, h] normalized 0..1 (resolution-independent)
 };
 
 export type SpeciesNetResult = {
@@ -40,8 +39,8 @@ export type SpeciesNetResult = {
   detections: SpeciesNetDetection[];
 };
 
-// The injectable seam — mirrors GenAIClient in analyzeCaptures.ts. Tests (and
-// analyzeCaptures) only ever see this shape, never the network.
+// The injectable seam: analyzeCaptures (and its tests) only ever see this
+// shape, so tests can pass a fake and never touch the network.
 export type SpeciesNetClient = { detect(jpeg: Buffer): Promise<SpeciesNetResult> };
 
 export function isSpeciesNetEnabled(): boolean {
