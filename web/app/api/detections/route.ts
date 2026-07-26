@@ -74,12 +74,12 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// POST: the Gemini detection pipeline records analysis results. This is a
+// POST: the detection pipeline records analysis results. This is a
 // server-to-server hook (NOT called by boards), so it stays guarded by the
 // shared CAMERA_API_KEY env var. Body:
 //   { deviceId, objectPath, capturedAt, detections: [{label, confidence, box:[x,y,w,h]}] }
 export async function POST(req: NextRequest) {
-  // 60/min per source IP -- the Gemini pipeline will be a single backend caller,
+  // 60/min per source IP -- the analysis pipeline is a single backend caller,
   // so this is mostly a bot/abuse guard on this public path.
   const rl = await checkRateLimit({
     key: `ip:${clientIp(req)}:detections-post`,

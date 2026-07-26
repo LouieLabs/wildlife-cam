@@ -6,7 +6,8 @@ import { analyzePendingCaptures } from '@/lib/analyzeCaptures';
 import { corsHeaders } from '@/lib/cors';
 
 export const runtime = 'nodejs';
-// gemini-2.5-pro is slow per call; a batch needs room (same as analyze-pending).
+// A cold SpeciesNet instance is slow to start; a batch needs room (same as
+// analyze-pending).
 export const maxDuration = 120;
 
 // POST /api/analyze-cron — run the in-cloud AI over unanalyzed captures,

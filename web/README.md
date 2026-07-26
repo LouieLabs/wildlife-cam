@@ -98,15 +98,15 @@ web/
 
 ---
 
-## AI animal detection — in-cloud, keyless (Gemini via Vertex AI)
+## AI animal detection — SpeciesNet, keyless
 
 > **In plain words.** Photos land on the dashboard "not analyzed". While a
 > signed-in student has the dashboard open, the server picks up a few pending
-> photos at a time, shows each to Gemini ("what animals do you see, and
-> where?"), and saves the species labels + bounding boxes back onto the same
-> record. No separate worker to run, and **no API keys anywhere**: Gemini is
-> called through Vertex AI with the same keyless service-account credentials
-> the rest of this backend already uses.
+> photos at a time and shows each to **SpeciesNet** — Google's open-source
+> camera-trap model — which answers both "is there an animal?" and "what
+> species is it?" in one go. The labels + boxes are saved back onto the same
+> record. **No API keys anywhere**, and no per-photo AI bill: the model runs on
+> our own private Cloud Run service, which only this backend is allowed to call.
 
 Flow:
 
@@ -114,39 +114,37 @@ Flow:
 camera -> upload -> capture-complete            (doc: analyzed:false)
 dashboard (any signed-in user, every 30 s)
    -> POST /api/analyze-pending                 (authed, rate-limited)
-      -> lib/analyzeCaptures.ts: Gemini zero-shot per photo
+      -> lib/analyzeCaptures.ts -> speciesnet-service (private, IAM-only)
       -> doc updated: detections, boxes, analyzed:true, public gate
 ```
 
 - The **`public` gallery gate is computed server-side**: a capture is
-  `public:true` only when no *person* or *dog* label is present. Fail-safe:
-  docs start `public:false` and stay private if analysis never runs.
-- Failed photos just stay `analyzed:false` and get retried on a later tick
-  (one automatic retry per attempt covers transient Vertex hiccups).
-- The prompt is tuned for camera-trap reality: **night infrared / grayscale**,
-  motion blur, partial animals at the edge, and — the big one — it's told to
-  return `[]` rather than hallucinate an animal in an empty frame (swaying
-  branches, IR glare, timestamps are explicitly *not* animals). It's primed
-  with the **local species** (Santa Cruz Mountains) to bias plausible IDs.
-- **Confidence floor:** animal guesses below `DETECTION_MIN_CONFIDENCE` (0.3) are
-  dropped from the saved list. **Person/dog are exempt** and always kept — a
-  faint "maybe a person" still forces the capture private (fail-safe privacy).
-- Config (all optional): `VERTEX_LOCATION` (default `us-central1`),
-  `GEMINI_MODEL` (default `gemini-2.5-flash`),
-  `DETECTION_MIN_CONFIDENCE` (default `0.3`), `REGION_SPECIES` (species hint),
-  `SPECIESNET_SERVICE_URL` (unset = SpeciesNet gate OFF),
+  `public:true` only when no *person* or *dog* is present. Fail-safe: docs start
+  `public:false` and stay private if analysis never runs.
+- **Two confidence floors, on purpose.** `SPECIESNET_GATE_MIN_CONFIDENCE` (0.6)
+  decides whether anything is in the frame at all — below it, the photo is
+  treated as empty. `DETECTION_MIN_CONFIDENCE` (0.3) then filters what gets
+  saved. **Person/dog are exempt** from both: a faint "maybe a person" is never
+  dropped, because it drives the privacy gate.
+- **Unnamed animals stay private.** When SpeciesNet detects an animal but can't
+  name the species (common on hard night frames), it might be a dog — so the
+  photo is kept off the public gallery. A named non-dog species can go public.
+- **If the service is unreachable, nothing is marked analyzed.** Photos stay
+  pending and retry on a later tick — we never save a photo as "analyzed" that
+  no model actually looked at.
+- Config (all optional): `SPECIESNET_SERVICE_URL` (unset = analysis disabled),
   `SPECIESNET_GATE_MIN_CONFIDENCE` (default `0.6`),
-  `SPECIESNET_TIMEOUT_MS` (default `20000`).
+  `SPECIESNET_TIMEOUT_MS` (default `20000`),
+  `DETECTION_MIN_CONFIDENCE` (default `0.3`).
 
-**One-time GCP setup** (or the first analysis calls will 403):
-1. Enable the **Vertex AI API** on `louielabs-animal-cams`.
-2. Grant `cloud-backend@louielabs-animal-cams.iam.gserviceaccount.com` the
-   **Vertex AI User** role (IAM page).
-3. (SpeciesNet gate only) Deploy `speciesnet-service/` and grant
-   `cloud-backend@…` **Cloud Run Invoker** on it — the exact commands are in
-   `speciesnet-service/README.md`.
+**One-time GCP setup** (until this is done, captures stay pending):
+1. Deploy `speciesnet-service/` and grant
+   `cloud-backend@louielabs-animal-cams.iam.gserviceaccount.com` **Cloud Run
+   Invoker** on it — the exact commands are in `speciesnet-service/README.md`.
+2. Set `SPECIESNET_SERVICE_URL` on the dashboard service to the new URL.
 
-Decision record (2026-07-03): **in-cloud Gemini over an external worker.**
+Decision record (2026-07-03) — **SUPERSEDED 2026-07-22 (Gemini removed entirely).**
+**In-cloud Gemini over an external worker.**
 An external analyzer (SpeciesNet worker, PR #39, reverted in PR #40) needed a
 shared `CAMERA_API_KEY` handed to whoever runs it — a secret to distribute and
 a public server-to-server surface to defend. Running the model call inside the
@@ -154,8 +152,10 @@ backend removes both (nothing new to secure) at the cost of tying analysis to
 Google's hosted model. Planned next steps: a Python Cloud Run job adds YOLOv8
 alongside Gemini; later, a tiny on-device model gates uploads at the camera.
 
-Decision record (2026-07-22): **SpeciesNet revived as a pre-detection gate —
-the PR #39/#40 objections no longer apply.** PR #39's worker ran *outside* the
+Decision record (2026-07-22a) — **SUPERSEDED same day by 2026-07-22b: the
+two-model design below was simplified to SpeciesNet alone.**
+**SpeciesNet revived as a pre-detection gate — the PR #39/#40 objections no
+longer apply.** PR #39's worker ran *outside* the
 backend: a polling script that needed the shared `CAMERA_API_KEY` handed to
 whoever ran it, plus a public server-to-server surface to defend. The revival
 keeps SpeciesNet but removes both problems: it now runs as a **private Cloud
@@ -175,6 +175,28 @@ stop slipping through. The privacy gate is the **union** of both models: a
 person or dog flagged by *either* keeps the photo private. The whole thing is
 behind one switch (`SPECIESNET_SERVICE_URL`): unset, the pipeline is exactly
 the old Gemini-only path — which is also the instant rollback.
+
+Decision record (2026-07-22b): **Gemini removed — SpeciesNet does both jobs.**
+The gate design above assumed Gemini was still the better *namer* of species,
+with SpeciesNet only deciding whether the frame was worth looking at. A blind
+human review disproved that. We ran all 172 public captures through SpeciesNet
+locally and had a person (not a model) judge the photos where the two
+disagreed: **Gemini was wrong on every one** — it invented a raccoon, a cat, an
+opossum and a mule deer in frames that were simply empty — while **SpeciesNet
+was right 9 times out of 10**, its only error being one missed human. Method
+note worth keeping: our *first* comparison scored SpeciesNet against Gemini's
+labels and concluded SpeciesNet was worse. That was circular — it used the
+unreliable model as the answer key. Never grade one model with another; use a
+human or independently known labels. Given the result, keeping Gemini bought
+nothing but hallucinations, latency, and a per-photo bill, so it is gone
+entirely: no Vertex AI, no `@google/genai`, no prompt to maintain. SpeciesNet
+classifies species itself (~2000 of them, geofenced to our region). The
+trade-off accepted knowingly: when SpeciesNet cannot name a species it reports
+a plain "animal" rather than guessing — honest uncertainty instead of a
+confident wrong answer — and such photos stay private, since an unnamed animal
+could be a dog. Removing Gemini before the SpeciesNet service was deployed was
+also accepted knowingly: captures simply stay pending (and private) until the
+service is live, then the backlog is picked up automatically.
 
 ---
 

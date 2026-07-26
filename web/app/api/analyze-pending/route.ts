@@ -4,18 +4,17 @@ import { checkRateLimit, rateLimitHeaders } from '@/lib/rateLimit';
 import { analyzePendingCaptures } from '@/lib/analyzeCaptures';
 
 export const runtime = 'nodejs';
-// gemini-2.5-pro is slower per call than -flash; give a batch of them room so
-// the platform doesn't cut the request off mid-analysis.
+// A cold SpeciesNet instance can take ~40-60 s to load its model; give a batch
+// room so the platform doesn't cut the request off mid-analysis.
 export const maxDuration = 120;
 
-// POST /api/analyze-pending — run the in-cloud AI over unanalyzed captures.
+// POST /api/analyze-pending — run animal detection over unanalyzed captures.
 //
 // In plain words: the dashboard calls this on its refresh loop. The server
-// picks up a few "not analyzed" photos, asks Gemini what's in them (keyless,
-// via Vertex AI — see lib/analyzeCaptures.ts), and saves the answers. No
-// external worker, no shared API key, nothing new to secure: the only way to
-// trigger it is to be a signed-in @louielabs.com user, same as the rest of
-// the dashboard.
+// picks up a few "not analyzed" photos, asks SpeciesNet what's in them
+// (keyless — see lib/analyzeCaptures.ts), and saves the answers. No external
+// worker, no shared API key, nothing new to secure: the only way to trigger it
+// is to be a signed-in @louielabs.com user, same as the rest of the dashboard.
 //
 // Idempotent + cheap when idle: if nothing is pending it does no model calls
 // and returns {scanned: 0}. Firestore picks the batch; concurrent triggers

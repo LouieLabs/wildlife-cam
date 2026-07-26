@@ -99,7 +99,7 @@ function toCaptureCard(id: string, data: any, imageUrl: string | null): CaptureC
     confidence: typeof confidence === "number" ? confidence : 0,
     temperatureF: typeof data.temperatureF === "number" ? data.temperatureF : null,
     humidityPercent: typeof data.humidityPercent === "number" ? data.humidityPercent : null,
-    // Default missing field to false (private) — only Gemini-confirmed publics
+    // Default missing field to false (private) — only analyzer-confirmed publics
     // are shown to unauthenticated visitors.
     public: data.public === true,
     detections,
