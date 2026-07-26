@@ -39,8 +39,24 @@ up a camera" page over USB Web Serial, and **survive reflashes**. Production
 firmware is built with `secrets.h` blank so it MUST be provisioned.
 
 1. Build & flash the firmware (Arduino IDE → Board **Heltec ESP32 HaLow → HT-HC33**
-   → Upload Speed **460800** → Upload). With `secrets.h` blank, the board boots
-   into a 10-second provisioning window on every cold boot.
+   → Upload Speed **460800** → **PSRAM → "QSPI PSRAM"** → Upload). With
+   `secrets.h` blank, the board boots into a 10-second provisioning window on
+   every cold boot.
+
+   > **⚠️ Set PSRAM — it defaults to "Disabled" and that caps every photo at
+   > 640×480.** The board has 8 MB of external RAM, but the Arduino menu ships
+   > with it switched off, and the camera's frame buffer then has to live in the
+   > small on-chip RAM, which can only hold a VGA frame. The OV3660 sensor can
+   > actually do 2048×1536, so leaving this off throws away ~10× the detail —
+   > enough that a small or distant animal becomes too few pixels for the
+   > detector to identify.
+   >
+   > The firmware checks at runtime and won't break if you forget: it falls back
+   > to VGA and prints `[cam] PSRAM NOT enabled -> stuck at VGA` on the serial
+   > monitor. If it still says that with "QSPI PSRAM" selected, choose **"OPI
+   > PSRAM"** instead (which one is correct depends on the memory chip fitted).
+   > When it works you'll see `[cam] PSRAM found -> high-resolution mode`,
+   > followed by the photo's size so you can judge the upload cost.
 2. On a desktop **Chrome / Edge** (Web Serial isn't on Safari / mobile), open the
    dashboard's `/provision` page (see [`web/README.md`](../web/README.md) for the
    URL). Sign in with your `@louielabs.com` account.

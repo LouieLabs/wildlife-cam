@@ -20,3 +20,27 @@
 
 HT-HC33.build.flash_size=16MB
 HT-HC33.upload.maximum_size=2097152
+
+# PSRAM is deliberately NOT forced here (yet) -- read this before "fixing" it.
+#
+# The Tools > PSRAM menu defaults to "Disabled", which silently caps the camera
+# at 640x480: with PSRAM off the frame buffer has to live in on-chip RAM, which
+# can't hold a bigger frame. Every flasher must set Tools > PSRAM by hand (see
+# cloud_telemetry_node/README.md), which is exactly the kind of footgun the
+# force-mode overrides above exist to remove -- so why isn't it forced?
+#
+# Two reasons, both resolvable:
+#   1. It is not settled whether this board wants "QSPI PSRAM" or "OPI PSRAM".
+#      The Heltec core defaults `build.psram_type=qspi`, but the ESP32-S3R8 part
+#      normally carries OCTAL PSRAM. Forcing the wrong one would leave PSRAM
+#      undetected on every board -- the same silent VGA cap, harder to spot.
+#   2. A Tools-menu selection is applied AFTER this file, so a forced value here
+#      may be overridden by the menu anyway. Forcing it properly means
+#      redefining the menu options themselves, which is worth doing once, not
+#      guessing at twice.
+#
+# The firmware fails safe in the meantime: it calls psramFound() at runtime,
+# drops to VGA if PSRAM is missing, and says so on the serial monitor.
+#
+# TO FINISH THIS: flash a board, read the serial log, note which menu choice
+# yields "[cam] PSRAM found", then force that value here and delete this block.
