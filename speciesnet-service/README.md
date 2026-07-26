@@ -77,13 +77,28 @@ gcloud run services add-iam-policy-binding speciesnet-service \
   --member="serviceAccount:cloud-backend@louielabs-animal-cams.iam.gserviceaccount.com" \
   --role="roles/run.invoker"
 
-# 4) Console: create a Cloud Build trigger (like the wildwatch-site one) —
-#    push to main, "included files" filter: speciesnet-service/**,
-#    build config: speciesnet-service/cloudbuild.yaml.
+# 4) GO LIVE — point the dashboard at the service. This reads the URL straight
+#    from the deployed service, so there is nothing to copy by hand:
+SN_URL=$(gcloud run services describe speciesnet-service \
+  --project=louielabs-animal-cams --region=us-west1 --format='value(status.url)')
+echo "$SN_URL"   # sanity check: https://speciesnet-service-....run.app
 
-# 5) Go live: add SPECIESNET_SERVICE_URL=<the service URL from step 2> to the
-#    wildlife-dashboard deploy env vars (web/cloudbuild.yaml + web/deploy.sh).
-#    Unsetting it is the instant rollback — the pipeline returns to Gemini-only.
+gcloud run services update wildlife-dashboard \
+  --project=louielabs-animal-cams --region=us-west1 \
+  --update-env-vars "SPECIESNET_SERVICE_URL=$SN_URL"
+
+#    This setting SURVIVES future website deploys: web/cloudbuild.yaml uses
+#    --update-env-vars (which merges) rather than --set-env-vars (which would
+#    replace the whole env and silently wipe this, turning detection off).
+#
+#    Rollback at any time:
+#      gcloud run services update wildlife-dashboard --project=louielabs-animal-cams \
+#        --region=us-west1 --remove-env-vars SPECIESNET_SERVICE_URL
+#    Analysis then stops and captures stay pending — nothing breaks.
+
+# 5) Optional: console — create a Cloud Build trigger (like the wildwatch-site
+#    one) so future changes auto-deploy: push to main, "included files" filter
+#    speciesnet-service/**, build config speciesnet-service/cloudbuild.yaml.
 ```
 
 ## Local development (no cloud needed)

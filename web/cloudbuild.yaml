@@ -106,7 +106,14 @@ steps:
       - '--service-account=cloud-backend@$PROJECT_ID.iam.gserviceaccount.com'
       - '--allow-unauthenticated'
       - '--quiet'
-      - '--set-env-vars=GCP_PROJECT_ID=$PROJECT_ID,GCLOUD_STORAGE_BUCKET=wildlife-camera-telemetry,FIREBASE_DATABASE_URL=https://louielabs-animal-cams-default-rtdb.firebaseio.com,FIRESTORE_DATABASE_ID=wildlife-camera-telemetry-db,APP_ENV=prod'
+      # --update-env-vars (NOT --set-env-vars): "set" REPLACES the service's
+      # whole env, so any variable configured outside this file — e.g.
+      # SPECIESNET_SERVICE_URL, set once by an owner after deploying
+      # speciesnet-service — would be silently wiped on the next push to main,
+      # turning animal detection off with no error. "update" merges instead.
+      # Trade-off: a variable deleted from this list is NOT removed from the
+      # running service; drop it with `gcloud run services update --remove-env-vars`.
+      - '--update-env-vars=GCP_PROJECT_ID=$PROJECT_ID,GCLOUD_STORAGE_BUCKET=wildlife-camera-telemetry,FIREBASE_DATABASE_URL=https://louielabs-animal-cams-default-rtdb.firebaseio.com,FIRESTORE_DATABASE_ID=wildlife-camera-telemetry-db,APP_ENV=prod'
       - '--set-secrets=CAMERA_API_KEY=camera-api-key:latest'
 
 images:

@@ -28,11 +28,17 @@ gcloud secrets add-iam-policy-binding camera-api-key \
   --member="serviceAccount:${SA}" --role=roles/secretmanager.secretAccessor --project "$PROJECT" >/dev/null
 
 echo "==> building + deploying to Cloud Run (runs AS the cloud-backend SA -> keyless, never reauths)"
+# --update-env-vars below (NOT --set-env-vars): "set" REPLACES the service's
+# whole env, wiping any variable configured outside this script -- e.g.
+# SPECIESNET_SERVICE_URL, set once by an owner after deploying
+# speciesnet-service -- which would switch animal detection off with no error.
+# Trade-off: a variable removed from the list below stays on the running
+# service; drop it with `gcloud run services update --remove-env-vars`.
 gcloud run deploy "$SERVICE" \
   --source . --region "$REGION" --project "$PROJECT" \
   --service-account "$SA" \
   --allow-unauthenticated --quiet \
-  --set-env-vars "GCP_PROJECT_ID=${PROJECT},GCLOUD_STORAGE_BUCKET=${BUCKET},FIREBASE_DATABASE_URL=${RTDB},FIRESTORE_DATABASE_ID=${FSDB},APP_ENV=prod" \
+  --update-env-vars "GCP_PROJECT_ID=${PROJECT},GCLOUD_STORAGE_BUCKET=${BUCKET},FIREBASE_DATABASE_URL=${RTDB},FIRESTORE_DATABASE_ID=${FSDB},APP_ENV=prod" \
   --set-secrets "CAMERA_API_KEY=camera-api-key:latest"
 
 echo
