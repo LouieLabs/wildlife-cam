@@ -24,7 +24,11 @@ const BUCKET = process.env.GCLOUD_STORAGE_BUCKET || "wildlife-camera-telemetry";
 const storage = new Storage({ projectId: process.env.GCP_PROJECT_ID });
 
 const READ_URL_TTL_MS = 60 * 60 * 1000; // 1 hour
-const OVERFETCH = 200;
+const SCAN_PAGE = 200;
+// Ceiling on how far back a single request will page looking for matches. Only
+// reached when a long unbroken run of docs fails the filters (see the scan loop
+// in GET); in normal operation the first page is enough and this costs nothing.
+const MAX_SCAN_DOCS = 2000;
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 
@@ -152,12 +156,22 @@ export async function GET(req: NextRequest) {
     // ?publicOnly=true (e.g. to preview what unauthenticated visitors see).
     const restrictToPublic = !showPrivate || publicOnlyParam;
 
-    // Overfetch with a single ordered query, then filter in memory. Keeps us
-    // off composite indexes for the small data sizes we expect (<1000 docs).
+    // Scan pages of an ordered query and filter in memory. Keeps us off
+    // composite indexes, which we cannot create from here anyway.
+    //
+    // Why a LOOP and not one fixed overfetch: every filter below runs in
+    // memory, so a single page can be filled entirely by docs that all fail
+    // one — and the gallery would show "no photos" while hundreds of good ones
+    // sat just past the window. That is not hypothetical: on 2026-07-29 a
+    // ~200-photo burst landed while analysis was switched off, and because
+    // pending docs are the NEWEST docs, they evicted all 172 analyzed captures
+    // from a flat 200-doc window. louielabs.com went blank with nothing broken
+    // and nothing lost. Paging past such a backlog costs extra reads only while
+    // the backlog exists.
     //
     // Pagination: when `before` is present it becomes a REAL range on the
     // query (not just the in-memory filter below) — otherwise a page-2 request
-    // could only ever see the newest OVERFETCH docs and older history would be
+    // could only ever see the newest docs and older history would be
     // unreachable. A range + orderBy on the SAME field needs no composite
     // index. `before` accepts epoch-ms or an ISO date string.
     // Both cursors accept epoch-ms ("1720000000000") or an ISO date string;
@@ -170,29 +184,63 @@ export async function GET(req: NextRequest) {
     const beforeMs = parseCursor(before);
     const afterMs = parseCursor(after);
 
-    let query = adminFirestore
-      .collection(COLLECTION)
-      .orderBy("capturedAt", "desc");
-    if (beforeMs !== null) {
-      query = query.where("capturedAt", "<", beforeMs);
+    const keep = (data: any): boolean => {
+      // A capture no model has looked at is never shown, to anyone.
+      if (data.analyzed !== true) return false;
+      if ((data.env || "prod") !== APP_ENV) return false;
+      if (restrictToPublic) {
+        if (data.public !== true) return false;
+        // Curation: hidden captures never reach the public view. Signed-in
+        // users keep seeing them (flagged in the card) so they can unhide.
+        if (data.hidden === true) return false;
+      }
+      if (species && data.species !== species) return false;
+      if (cameraId && data.deviceId !== cameraId) return false;
+      const ts = new Date(data.capturedAt).getTime();
+      if (afterMs !== null && ts < afterMs) return false;
+      if (beforeMs !== null && ts >= beforeMs) return false;
+      return true;
+    };
+
+    const docs: { id: string; data: any }[] = [];
+    let cursor: any = null;
+    let scanned = 0;
+
+    while (docs.length < limit && scanned < MAX_SCAN_DOCS) {
+      let query = adminFirestore
+        .collection(COLLECTION)
+        .orderBy("capturedAt", "desc");
+      if (beforeMs !== null) {
+        query = query.where("capturedAt", "<", beforeMs);
+      }
+      if (cursor) {
+        query = query.startAfter(cursor);
+      }
+      const snap = await query.limit(SCAN_PAGE).get();
+      if (!snap.docs.length) break;
+
+      scanned += snap.docs.length;
+      cursor = snap.docs[snap.docs.length - 1];
+
+      for (const d of snap.docs) {
+        const data = d.data() as any;
+        if (keep(data)) docs.push({ id: d.id, data });
+        if (docs.length >= limit) break;
+      }
+
+      // A short page means we reached the end of the collection.
+      if (snap.docs.length < SCAN_PAGE) break;
+      // `after` is a floor in time and the order is newest-first, so once a
+      // page ends older than it, nothing further back can match.
+      if (afterMs !== null && new Date((cursor.data() as any).capturedAt).getTime() < afterMs) break;
     }
-    const snap = await query.limit(OVERFETCH).get();
 
-    let docs = snap.docs
-      .map((d) => ({ id: d.id, data: d.data() as any }))
-      .filter(({ data }) => data.analyzed === true)
-      .filter(({ data }) => (data.env || "prod") === APP_ENV);
-
-    if (restrictToPublic) docs = docs.filter(({ data }) => data.public === true);
-    // Curation: hidden captures never reach the public view. Signed-in users
-    // keep seeing them (flagged in the card) so they can unhide.
-    if (restrictToPublic) docs = docs.filter(({ data }) => data.hidden !== true);
-    if (species) docs = docs.filter(({ data }) => data.species === species);
-    if (cameraId) docs = docs.filter(({ data }) => data.deviceId === cameraId);
-    if (afterMs !== null) docs = docs.filter(({ data }) => new Date(data.capturedAt).getTime() >= afterMs);
-    if (beforeMs !== null) docs = docs.filter(({ data }) => new Date(data.capturedAt).getTime() < beforeMs);
-
-    docs = docs.slice(0, limit);
+    if (docs.length < limit && scanned >= MAX_SCAN_DOCS) {
+      console.warn(
+        `GET /api/captures: scan cap hit — ${docs.length} match(es) after ${scanned} docs. ` +
+          `Usually means a large backlog of unanalyzed captures (is the analyzer running?).`,
+      );
+    }
 
     const captures = await Promise.all(
       docs.map(async ({ id, data }) => {

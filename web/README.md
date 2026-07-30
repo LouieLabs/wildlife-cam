@@ -198,6 +198,29 @@ could be a dog. Removing Gemini before the SpeciesNet service was deployed was
 also accepted knowingly: captures simply stay pending (and private) until the
 service is live, then the backlog is picked up automatically.
 
+Decision record (2026-07-30): **the gallery reads by scanning pages, not by one
+fixed overfetch.** The accepted gap above had a consequence nobody predicted.
+`GET /api/captures` used to fetch the newest 200 docs and *then* drop the ones
+failing its in-memory filters (`analyzed`, `env`, `public`, `hidden`). Pending
+captures are by definition the NEWEST docs, so on 2026-07-29 a ~200-photo burst
+arriving while analysis was switched off filled that window end to end and
+evicted all 172 analyzed captures. louielabs.com showed "No detections yet" with
+nothing broken, nothing deleted, and every photo still readable one page further
+back — and the UI could not recover on its own, because `loadMoreCaptures()`
+pages from the oldest photo already on screen and there were none. The read now
+walks pages with `startAfter` cursors until it has `limit` matches or hits
+`MAX_SCAN_DOCS` (2000). Cost is unchanged in normal operation — the first page
+still satisfies a full page of results in one query — and extra reads happen
+only while a backlog exists, which is exactly when the alternative is a blank
+site. **Rejected:** filtering server-side with `where("analyzed","==",true)`.
+It is the cheaper query, but combined with `orderBy("capturedAt","desc")` it
+needs a composite index, this repo keeps no `firestore.indexes.json`, and a
+missing index makes the endpoint throw — trading a recoverable blank gallery for
+a hard 500 that only someone with console access could clear. The cursor loop
+needs no index. **Lesson worth keeping:** when a filter runs in memory *after* a
+limit, the limit is a guess about data you haven't looked at yet. Any unbroken
+run of non-matching docs longer than the window reads as "there is nothing here."
+
 ---
 
 ## Setup
