@@ -4,13 +4,14 @@ import { makeRequest, FAKE_USER } from '../_helpers';
 const m = vi.hoisted(() => {
   const get = vi.fn().mockResolvedValue({ docs: [] });
   const limit = vi.fn(() => ({ get }));
-  const where = vi.fn(() => ({ limit }));
-  const orderBy = vi.fn(() => ({ where, limit }));
+  const startAfter = vi.fn(() => ({ limit }));
+  const where = vi.fn(() => ({ limit, startAfter }));
+  const orderBy = vi.fn(() => ({ where, limit, startAfter }));
   const collection = vi.fn(() => ({ orderBy }));
   return {
     tryLouieLabsUser: vi.fn(),
     getSignedUrl: vi.fn().mockResolvedValue(['https://signed.read/url']),
-    collection, orderBy, where, limit, get,
+    collection, orderBy, where, limit, startAfter, get,
   };
 });
 
@@ -54,6 +55,7 @@ describe('GET /api/captures', () => {
     m.get.mockReset().mockResolvedValue({ docs: [] });
     m.where.mockClear();
     m.orderBy.mockClear();
+    m.startAfter.mockClear();
     m.getSignedUrl.mockReset().mockResolvedValue(['https://signed.read/url']);
   });
 
@@ -133,5 +135,49 @@ describe('GET /api/captures', () => {
     const res = await GET(makeRequest({ url: 'http://localhost/api/captures' }));
     const cards = await res.json();
     expect(cards.map((c: any) => [c.id, c.hidden])).toEqual([['shown1', false], ['hid1', true]]);
+  });
+
+  // ── Backlog eviction ───────────────────────────────────────────────────────
+  // Regression guard for the 2026-07-29 blackout: pending captures are the
+  // NEWEST docs, so a burst of them filled a flat 200-doc window and pushed
+  // every analyzed photo out of view. The gallery reported "no photos" while
+  // 172 sat one page further back.
+  const pageOf = (n: number, over: Record<string, unknown> = {}) =>
+    Array.from({ length: n }, (_, i) => doc(`d${i}`, over));
+
+  it('pages past a full window of unanalyzed captures instead of reporting none', async () => {
+    m.get
+      .mockResolvedValueOnce({ docs: pageOf(200, { analyzed: false }) })
+      .mockResolvedValueOnce({ docs: [doc('good1'), doc('good2')] });
+    const res = await GET(makeRequest({ url: 'http://localhost/api/captures' }));
+    expect(res.status).toBe(200);
+    const cards = await res.json();
+    expect(cards.map((c: any) => c.id)).toEqual(['good1', 'good2']);
+    expect(m.startAfter).toHaveBeenCalled(); // it really did page, not re-query
+  });
+
+  it('one page is enough in normal operation — no extra reads', async () => {
+    m.get.mockResolvedValue({ docs: pageOf(200) });
+    const res = await GET(makeRequest({ url: 'http://localhost/api/captures?limit=50' }));
+    const cards = await res.json();
+    expect(cards).toHaveLength(50);
+    expect(m.get).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops at the scan cap rather than paging forever', async () => {
+    m.get.mockResolvedValue({ docs: pageOf(200, { analyzed: false }) });
+    const res = await GET(makeRequest({ url: 'http://localhost/api/captures' }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([]);
+    expect(m.get).toHaveBeenCalledTimes(10); // MAX_SCAN_DOCS 2000 / SCAN_PAGE 200
+  });
+
+  it('keeps the `before` range on every page it scans', async () => {
+    m.get
+      .mockResolvedValueOnce({ docs: pageOf(200, { analyzed: false }) })
+      .mockResolvedValueOnce({ docs: [doc('old1', { capturedAt: 1_600_000_000_000 })] });
+    await GET(makeRequest({ url: 'http://localhost/api/captures?before=1650000000000' }));
+    expect(m.where).toHaveBeenCalledTimes(2);
+    expect(m.where).toHaveBeenLastCalledWith('capturedAt', '<', 1_650_000_000_000);
   });
 });
