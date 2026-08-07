@@ -13,6 +13,13 @@ bool wifiConnect(uint32_t timeoutMs = 15000);
 // is set in node_config.h.
 int readBatteryPercent();
 
+// True when the board is running on USB power (a cable to a computer OR a wall
+// charger). Detected by whether the CP2102 -- powered only from USB VBUS -- is
+// alive and driving the U0RXD line (USB_SENSE_PIN). Passive, no extra hardware.
+// Briefly reconfigures the console RX pin (~50us), so a stray console byte in
+// that window could be missed; harmless. See node_config.h USB_SENSE_PIN.
+bool isUsbPowered();
+
 // One NTP time sync. Returns epoch seconds, or 0 if it couldn't sync in time
 // (we still report; the timestamp just won't be wall-clock accurate).
 long getEpochSeconds(uint32_t timeoutMs = 8000);

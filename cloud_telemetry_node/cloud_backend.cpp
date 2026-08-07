@@ -8,12 +8,21 @@
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include "time.h"
+#include "driver/gpio.h"   // gpio_reset_pin / gpio_num_t for USB-power sensing
 
 // ---------------------------------------------------------------------------
 // Networking
 // ---------------------------------------------------------------------------
 
 // Associate to a 2.4 GHz AP (the native ESP32 radio). Returns true on connect.
+//
+// NOTE (2026-07-09): a BSSID+channel "fast-reconnect" cache was tried here to
+// skip the scan, but bench measurement showed it made the connect SLOWER
+// (~1.6 s vs ~1.2 s), not faster. The bottleneck on a single-band, known-SSID
+// connect is association + WPA2 + DHCP (WL_CONNECTED waits for the DHCP IP),
+// not the scan -- so caching the AP bought nothing and was reverted. The only
+// way to meaningfully beat ~1.2 s is to not disconnect at all (light-sleep with
+// WiFi kept associated). See docs / the deep-sleep discussion.
 static bool wifiStaConnect(const String &ssid, const String &pass, uint32_t timeoutMs) {
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid.c_str(), pass.c_str());
@@ -73,6 +82,36 @@ int readBatteryPercent() {
   if (pct < 0) pct = 0;
   if (pct > 100) pct = 100;
   return (int)pct;
+}
+
+// ---------------------------------------------------------------------------
+// USB-power detection (no extra hardware -- reads the CP2102-alive signal)
+// ---------------------------------------------------------------------------
+// The CP2102 bridge is powered from VDD_5V, which comes only from USB VBUS.
+// Its TXD drives the ESP32's U0RXD (GPIO44). We briefly steal that pin from the
+// UART, enable the internal pulldown, and read it:
+//   USB present -> CP2102 powered -> TXD idles HIGH (overrides pulldown) -> 1
+//   USB absent  -> CP2102 dead    -> line floats -> pulldown wins          -> 0
+static bool readUsbSensePin() {
+  gpio_num_t pin = (gpio_num_t)USB_SENSE_PIN;
+  // Detach the pin from the UART peripheral so we can read the raw pad level.
+  gpio_reset_pin(pin);
+  pinMode(USB_SENSE_PIN, INPUT_PULLDOWN);
+  delayMicroseconds(50);          // let the pulldown settle the floating case
+  bool high = digitalRead(USB_SENSE_PIN) == HIGH;
+  return high;
+}
+
+bool isUsbPowered() {
+  Serial.flush();                 // don't cut off a console line mid-transmit
+  Serial.end();                   // release UART0 so the RX pad is ours to poll
+  // Sample twice with a gap: a real powered CP2102 holds the line steadily
+  // HIGH; a momentary glitch on a floating pin won't survive both reads.
+  bool a = readUsbSensePin();
+  delayMicroseconds(200);
+  bool b = readUsbSensePin();
+  Serial.begin(115200);           // restore the console
+  return a && b;
 }
 
 // ---------------------------------------------------------------------------

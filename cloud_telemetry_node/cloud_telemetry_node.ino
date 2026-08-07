@@ -213,6 +213,7 @@ void setup() {
                          : timerWake  ? "TIMER" : "COLDBOOT";
   Serial.printf("\n=== wake #%u (wake reason: %d, %s) ===\n", bootCount, (int)cause, why);
   Serial.printf("[fw] version %s\n", FW_VERSION_STR);
+  Serial.printf("[power] USB power: %s\n", isUsbPowered() ? "YES (on a cable)" : "no (battery)");
 
   pirInit();      // PIR signal pin   -> input (also needed before re-arming for sleep)
   buttonInit();   // USER button pin  -> input

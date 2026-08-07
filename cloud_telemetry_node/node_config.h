@@ -79,6 +79,18 @@
 #define VBAT_EMPTY_MV      3400    // ~0%  (Li-ion empty)
 #define VBAT_FULL_MV       4200    // ~100% (Li-ion full)
 
+// --- USB-power sense (no extra hardware; from the schematic) -----------------
+// The CP2102 USB-UART bridge is powered from VDD_5V, and VDD_5V comes ONLY from
+// the USB VBUS (Type-C -> F1 fuse -> VDD_5V; no battery boost). So when USB is
+// unplugged the CP2102 is fully unpowered and its TXD line (-> the ESP32's
+// U0RXD = GPIO44) stops being driven. We detect "on USB power" by enabling the
+// pin's internal pulldown and reading it: a powered CP2102 idles the line HIGH
+// (push-pull, overrides the ~45k pulldown) => USB present; unpowered => LOW.
+// Verified against HT-HC33_Schematic_V1.0.0 (USB-UART + POWER blocks) 2026-07-09.
+// NOTE: reads USB *power*, not "terminal open" -- a wall charger also reads HIGH.
+// Solar charging does NOT false-trigger (it feeds the battery, not VDD_5V).
+#define USB_SENSE_PIN      44      // U0RXD, wired to CP2102 TXD (pin 50 on the S3)
+
 // --- Dev vs Field mode (auto, single codebase) ------------------------------
 // On a COLD boot, the node listens this long on the serial port. If a developer
 // (a computer is connected) presses any key, it enters DEV MODE: a self-contained
